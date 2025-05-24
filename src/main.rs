@@ -57,12 +57,13 @@ fn show_tables (s: &mut Cursive) {
         tables.iter().for_each(|table_name| {
             let table_name_clone = table_name.clone();
             list.add_child(Button::new(table_name, move |s| {
-                draw_readings_for_table(s, &table_name_clone);
+                if let Err(e) = draw_db_table(s, &table_name_clone) {
+                    s.add_layer(Dialog::info(format!("Something went wrong {}", e)));
+                };
             }));
         });
-
-
         s.add_layer(Dialog::around(list).with_name("tables_list"));
+
     } else {
         s.add_layer(
             Dialog::around(
@@ -77,40 +78,47 @@ fn pop_top (s: &mut Cursive) {
     s.pop_layer();
 }
 
-fn draw_readings_for_table (s: &mut Cursive, table_name: &str) -> Result<()> {
-    s.pop_layer();
-
-    let selected_row = Arc::new(Mutex::new(Option::<DBRow>::None));
-
-    let selected_row_clone = selected_row.clone();
+fn create_db_helper_buttons (selected_row: Arc<Mutex<Option<DBRow>>>, table_name: &str) -> LinearLayout {
     let table_name_cp = table_name.to_owned();
-    let buttons = LinearLayout::vertical()
+    LinearLayout::vertical()
         .child(Button::new("DELETE", move |s| { 
-            if let Ok(selected_row) = selected_row_clone.lock() {
-                let inspected =  selected_row.clone().inspect(|row| {
-                    match delete_row_from_table(row, &table_name_cp) {
-                        Ok(rows_changed) => {
-                            s.add_layer(Dialog::info(format!("{} rows deleted: {}", rows_changed, row)));
-                            if let Err(e) = update_table(s, &table_name_cp) {
-                                s.add_layer(Dialog::info(format!("Something went wrong {}", e)));
-                            };
-                        },
-                        Err(e) => {
-                            s.add_layer(Dialog::info(format!("Something went wrong {}", e)));
-                        },
-                    };
-                });
-                if let None = inspected {
-                    s.add_layer(Dialog::info("No rows selected."));
-                }
-            } else {
-                s.add_layer(Dialog::info("Failed to lock mutex."));
-            }
+            let selected_row_clone = selected_row.clone();
+            handle_delete_db_row(s, selected_row_clone, &table_name_cp);
         }).with_name("db_helper_button")
-        ).child(Button::new("CANCEL", |_s| { }));
+        ).child(Button::new("CANCEL", |_s| { }))
+}
 
+fn handle_delete_db_row(s: &mut Cursive, selected_row: Arc<Mutex<Option<DBRow>>>, table_name: &str) {
+    match selected_row.lock() {
+        Ok(mut selected_row) => {
+            let inspected =  selected_row.clone().inspect(|row| {
+                match delete_row_from_table(row, &table_name) {
+                    Ok(rows_changed) => {
+                        s.add_layer(Dialog::info(format!("{} rows deleted: {}", rows_changed, row)));
+                        if let Err(e) = update_table(s, table_name) {
+                            s.add_layer(Dialog::info(format!("Something went wrong {}", e)));
+                        };
+                        *selected_row = None;
+                    },
+                    Err(e) => {
+                        s.add_layer(Dialog::info(format!("Something went wrong {}", e)));
+                    },
+                };
+            });
+            if let None = inspected {
+                s.add_layer(Dialog::info("No rows selected."));
+            }
+        },
+        Err(_) => {
+            s.add_layer(Dialog::info("Failed to lock mutex."));
+        },
+    }
+}
+
+fn create_table_select_view (selected_row: Arc<Mutex<Option<DBRow>>>) -> ScrollView<NamedView<SelectView<DBRow>>> {
     let selected_row_clone = selected_row.clone();
-    let select_view = SelectView::<DBRow>::new()
+    let selected_row_submit_clone = selected_row.clone();
+    SelectView::<DBRow>::new()
         .on_select( move |s, row| {
             if let Ok(mut selected_row) = selected_row_clone.lock() {
                 *selected_row = Some(row.to_owned());
@@ -118,13 +126,24 @@ fn draw_readings_for_table (s: &mut Cursive, table_name: &str) -> Result<()> {
                 s.add_layer(Dialog::info("Failed to lock mutex."));
             }
         })
-        .on_submit(move |s, _row| {
+        .on_submit(move |s, row| {
             if let Err(_) = s.focus_name("db_helper_button") {
                 s.add_layer(Dialog::info("View not found."));
             }
-        });
+            if let Ok(mut selected_row) = selected_row_submit_clone.lock() {
+                *selected_row = Some(row.to_owned());
+            }
+        }).with_name("main_table").scrollable()
+}
 
-    let select_view = select_view.with_name("main_table").scrollable();
+fn draw_db_table (s: &mut Cursive, table_name: &str) -> Result<()> {
+    s.pop_layer();
+
+    let selected_row = Arc::new(Mutex::new(Option::<DBRow>::None));
+
+    let buttons = create_db_helper_buttons(selected_row.clone(), table_name);
+    let select_view = create_table_select_view(selected_row);
+
     s.add_layer(Dialog::around(
         LinearLayout::horizontal()
             .child(buttons)
@@ -132,8 +151,7 @@ fn draw_readings_for_table (s: &mut Cursive, table_name: &str) -> Result<()> {
             .child(select_view)
     ));
 
-    update_table(s, table_name)?;
-    Ok(())
+    update_table(s, table_name)
 }
 
 fn update_table(s: &mut Cursive, table_name: &str) -> Result<()> {
