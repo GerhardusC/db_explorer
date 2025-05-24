@@ -1,7 +1,8 @@
-use std::{fmt::Display, io::{Error, ErrorKind}};
+use std::{fmt::Display, io::{Error, ErrorKind}, time::SystemTime};
 
 use color_eyre::Result;
 use rusqlite::{params, types::FromSql, Connection};
+use chrono::DateTime;
 
 static DB_PATH: &str = "./data.db";
 
@@ -13,7 +14,18 @@ pub struct DBRow {
 
 impl From<&DBRow> for String {
     fn from(value: &DBRow) -> Self {
-        format!("{} -> {} -> {}", value.timestamp, value.value, value.topic)
+        let limited_db_row = value.fix_col_lengths(20);
+        let timestamp = DateTime::from_timestamp(
+            value.timestamp as i64,
+            0
+        ).unwrap_or(SystemTime::now().into());
+
+        format!(
+            "| {} | {} | {}",
+            timestamp.naive_local().to_string(),
+            limited_db_row.topic,
+            limited_db_row.value,
+        )
     }
 }
 
@@ -21,8 +33,8 @@ impl Clone for DBRow {
     fn clone(&self) -> Self {
         DBRow {
            timestamp: self.timestamp,
+           value: self.value.to_owned(),
            topic: self.topic.to_owned(),
-           value: self.value.to_owned()
         }
     }
 }
@@ -92,6 +104,32 @@ pub fn get_all_from_table (table_name: &str) -> Result<Vec<DBRow>> {
     }
 
     return Err(Error::new(ErrorKind::Other, "Something went wrong while getting data from the table").into());
+}
+
+fn fix_str_len(string: &str, len: usize) -> String {
+    let mut new_string = String::new();
+    let mut chars = string.chars();
+    // let mut char_indicies = string.char_indices();
+    for _ in 0..len {
+        let char = chars.nth(0);
+        if let Some(char) = char {
+            new_string.push(char);
+        } else {
+            new_string.push(' ');
+        }
+    }
+
+    new_string
+}
+
+impl DBRow {
+    fn fix_col_lengths (&self, len: usize) -> Self {
+        DBRow{
+            timestamp: self.timestamp,
+            topic: fix_str_len(&self.topic, len),
+            value: fix_str_len(&self.value, len),
+        }
+    }
 }
 
 pub fn get_tables () -> Result<Vec<String>> {
