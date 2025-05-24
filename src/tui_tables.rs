@@ -36,12 +36,13 @@ pub fn init_table_selection (s: &mut Cursive) {
 
 }
 
-fn create_buttons (selected_row: Arc<Mutex<Option<DBRow>>>, table_name: &str) -> LinearLayout {
+fn create_buttons (selected_row: Arc<Mutex<Option<DBRow>>>, val_filter: Arc<Mutex<String>>, table_name: &str) -> LinearLayout {
     let table_name_cp = table_name.to_owned();
     LinearLayout::vertical()
         .child(Button::new("DELETE", move |s| { 
+            let val_filter_cp = val_filter.clone();
             let selected_row_clone = selected_row.clone();
-            handle_delete_db_row(s, selected_row_clone, &table_name_cp);
+            handle_delete_db_row(s, selected_row_clone, val_filter_cp, &table_name_cp);
         }).with_name("db_helper_button")
         ).child(Button::new("CANCEL", |_s| { }))
 }
@@ -67,14 +68,14 @@ fn create_row_container (selected_row: Arc<Mutex<Option<DBRow>>>) -> ScrollView<
         }).with_name("main_table").scrollable()
 }
 
-fn handle_delete_db_row(s: &mut Cursive, selected_row: Arc<Mutex<Option<DBRow>>>, table_name: &str) {
+fn handle_delete_db_row(s: &mut Cursive, selected_row: Arc<Mutex<Option<DBRow>>>, val_filter: Arc<Mutex<String>>, table_name: &str) {
     match selected_row.lock() {
         Ok(mut selected_row) => {
             let inspected =  selected_row.clone().inspect(|row| {
                 match delete_row_from_table(row, &table_name) {
                     Ok(rows_changed) => {
                         s.add_layer(Dialog::info(format!("{} rows deleted: {}", rows_changed, row)));
-                        if let Err(e) = update_table(s, table_name) {
+                        if let Err(e) = update_table(s, table_name, val_filter) {
                             s.add_layer(Dialog::info(format!("Something went wrong {}", e)));
                         };
                         *selected_row = None;
@@ -98,8 +99,10 @@ fn draw_table (s: &mut Cursive, table_name: &str) -> Result<()> {
     s.pop_layer();
 
     let selected_row = Arc::new(Mutex::new(Option::<DBRow>::None));
+    let val_filter = Arc::new(Mutex::new(String::new()));
 
-    let buttons = create_buttons(selected_row.clone(), table_name);
+
+    let buttons = create_buttons(selected_row.clone(), val_filter.clone(), table_name);
     let row_container = create_row_container(selected_row);
 
     s.add_layer(Dialog::around(
@@ -109,16 +112,20 @@ fn draw_table (s: &mut Cursive, table_name: &str) -> Result<()> {
             .child(row_container)
     ));
 
-    update_table(s, table_name)
+    let val_filter = val_filter.clone();
+    update_table(s, table_name, val_filter)
 }
 
-fn update_table(s: &mut Cursive, table_name: &str) -> Result<()> {
+fn update_table(s: &mut Cursive, table_name: &str, val_filter: Arc<Mutex<String>>) -> Result<()> {
     let res = s.call_on_name("main_table", |v: &mut SelectView<DBRow>| -> Result<()> {
-        let rows = get_all_from_table(table_name)?;
-        v.clear();
-        v.add_all(rows.iter().map(|row| {
-            (row, row.to_owned())
-        }));
+        if let Ok(val_filter) = val_filter.lock() {
+            let rows = get_all_from_table(table_name)?;
+            v.clear();
+            v.add_all(rows.iter()
+                .filter(|row| row.value.contains(&val_filter.to_string()))
+                .map(|row| (row, row.to_owned())
+            ));
+        };
         Ok(())
     });
 

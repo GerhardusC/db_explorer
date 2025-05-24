@@ -9,7 +9,7 @@ static DB_PATH: &str = "./data.db";
 pub struct DBRow {
     timestamp: u64,
     topic: String,
-    value: String,
+    pub value: String,
 }
 
 impl From<&DBRow> for String {
