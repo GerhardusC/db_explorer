@@ -1,8 +1,9 @@
 use std::{fmt::Display, io::{Error, ErrorKind}};
-static DB_PATH: &str = "./data.db";
 
 use color_eyre::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{params, types::FromSql, Connection};
+
+static DB_PATH: &str = "./data.db";
 
 pub struct DBRow {
     timestamp: u64,
@@ -32,6 +33,32 @@ impl Display for DBRow {
     }
 }
 
+enum ColumnKind {
+    FLOAT(f64),
+    STRING(String),
+}
+
+impl Display for ColumnKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ColumnKind::FLOAT(val) => f.write_str(&format!("{:.2}",val)),
+            ColumnKind::STRING(val) => f.write_str(&format!("{}", val)),
+        }
+    }
+}
+
+impl FromSql for ColumnKind {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        if let Ok(val) = value.as_f64() {
+            Ok(ColumnKind::FLOAT(val))
+        } else {
+            let bytes = value.as_bytes().unwrap_or(&[]);
+            let val = String::from_utf8(bytes.into());
+            Ok(ColumnKind::STRING(val.unwrap_or("No value".to_owned())))
+        }
+    }
+}
+
 pub fn delete_row_from_table (row: &DBRow, table_name: &str) -> Result<usize> {
     let conn = Connection::open(DB_PATH)?;
     let query = format!(
@@ -49,11 +76,11 @@ pub fn get_all_from_table (table_name: &str) -> Result<Vec<DBRow>> {
     let mut statement = conn.prepare(&format!("SELECT * FROM {};", table_name))?;
 
     let rows_iter = statement.query_map([], |row| {
-        let val = row.get::<usize, f32>(2).unwrap_or(0.);
+        let val = row.get::<usize, ColumnKind>(2).unwrap_or(ColumnKind::FLOAT(0.));
         let curr_row = DBRow{
             timestamp: row.get(0).unwrap_or(0),
             topic: row.get(1).unwrap_or("".to_owned()),
-            value: format!("{:.2}", val),
+            value: format!("{}", val),
         };
         Ok(curr_row)
     })?;
