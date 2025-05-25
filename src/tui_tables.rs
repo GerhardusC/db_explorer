@@ -51,7 +51,7 @@ fn create_buttons (selected_row: Arc<Mutex<Option<DBRow>>>, val_filter: Arc<Mute
             // Passed a reference of val_filter to handle delete, becuase table needs to be updated.
             handle_delete_db_row(s, selected_row.clone(), val_filter.clone(), &table_name_cp_cp);
         }).with_name("db_helper_button"))
-        .child(Button::new("CANCEL", |_s| {}))
+        // .child(Button::new("CANCEL", |_s| {}))
 }
 
 fn handle_filter_db_rows (s: &mut Cursive, val_filter: Arc<Mutex<String>>, table_name: &str) {

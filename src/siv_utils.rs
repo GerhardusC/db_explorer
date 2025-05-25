@@ -19,7 +19,7 @@ use crate::tui_tables::db_explorer;
 
 pub fn check_config(s: &mut Cursive) {
     s.add_layer(TextView::new(""));
-    if let Err(_) = s.load_toml("./config.toml") {
+    if let Err(_) = s.load_toml(include_str!("./config.toml")) {
         let mut view = Dialog::info("No config file found, using default styles");
             view.buttons_mut()
                 .for_each(|i| {
@@ -51,7 +51,10 @@ pub fn show_help (s: &mut Cursive) {
         s.pop_layer();
     };
 
-    s.add_layer(Dialog::info("TODO! Write info").title("HELP").with_name("help_menu"));
+    s.add_layer(
+        Dialog::info("TODO! Write info")
+            .title("HELP").with_name("help_menu")
+    );
 }
 
 
@@ -63,7 +66,7 @@ pub fn draw_bottom_bar (s: &mut Cursive) {
                     .child(
                         Rect::from_point(Vec2::zero()),
                         Layer::new(
-                            TextView::new("<T>ables | <I>nfo | <H>elp | <P>op top | <Q>uit ")
+                            TextView::new("<T>ables | <I>nfo | <H>elp | <Q>uit ")
                     ).full_width()
                     ),
                 draw_bottom_bar_cb
