@@ -1,21 +1,17 @@
+use std::path::Path;
+
 use cursive::{
-    view::{Nameable, Resizable},
-    views::{
+    view::{Nameable, Resizable}, views::{
         Dialog,
         FixedLayout,
         Layer,
         NamedView,
         OnLayoutView,
         TextView
-    },
-    Cursive,
-    Rect,
-    Vec2,
-    View,
-    XY
+    }, Cursive, Rect, Vec2, View, XY
 };
 
-use crate::tui_tables::draw_db_explorer;
+use crate::{cli_args::ARGS, tui_tables::draw_db_explorer};
 
 pub fn check_config(s: &mut Cursive) {
     s.add_layer(TextView::new(""));
@@ -44,6 +40,23 @@ pub fn info (s: &mut Cursive) {
         s.pop_layer();
     };
     s.add_layer(Dialog::text("-> <t> for tables").title("INSTRUCTIONS:").with_name("general_info"));
+}
+
+pub fn draw_startup_popup(s: &mut Cursive) {
+    let path = Path::new(&ARGS.db_path);
+    if let Ok(path) = path.canonicalize() {
+        if let Some(path) = path.to_str() {
+            s.add_layer(
+                Dialog::info(
+                    format!("Starting with DB at:\n{}", path)
+                ).title("Startup info"));
+        };
+    } else {
+        s.add_layer(
+            Dialog::info(
+                format!("Failed to parse DB Path:\n{}", &ARGS.db_path)
+            ).title("Startup info"));
+    };
 }
 
 pub fn show_help (s: &mut Cursive) {

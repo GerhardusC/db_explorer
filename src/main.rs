@@ -7,13 +7,14 @@ use color_eyre::Result;
 use cursive::{ Cursive, CursiveExt };
 use db_interactions::setup_db;
 use tui_tables::draw_db_explorer;
-use siv_utils::{check_config, draw_bottom_bar, info, quit, show_help};
+use siv_utils::{check_config, draw_bottom_bar, draw_startup_popup, info, quit, show_help};
 
 fn main() -> Result<()> {
     setup_db()?;
     let mut siv = Cursive::new();
     draw_bottom_bar(&mut siv);
     check_config(&mut siv);
+    draw_startup_popup(&mut siv);
 
     siv.add_global_callback('q', quit);
     siv.add_global_callback('i', info);
