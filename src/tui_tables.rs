@@ -8,7 +8,7 @@ use cursive::{
 };
 use crate::db_interactions::{get_tables, get_all_from_table, DBRow, delete_row_from_table};
 
-pub fn db_explorer (s: &mut Cursive) {
+pub fn draw_db_explorer (s: &mut Cursive) {
     s.pop_layer();
     if let Some(_) = s.call_on_name("tables_list", |_v: &mut Dialog| {}) {
         s.pop_layer();
@@ -34,6 +34,47 @@ pub fn db_explorer (s: &mut Cursive) {
         );
     }
 
+}
+
+fn draw_table (s: &mut Cursive, table_name: &str) -> Result<()> {
+    s.pop_layer();
+
+    let selected_row = Arc::new(Mutex::new(Option::<DBRow>::None));
+    let val_filter = Arc::new(Mutex::new(String::new()));
+
+    let buttons = create_buttons(selected_row.clone(), val_filter.clone(), table_name);
+    let row_container = create_row_container(selected_row);
+
+    s.add_layer(Dialog::around(
+        LinearLayout::horizontal()
+            .child(buttons)
+            .child(DummyView)
+            .child(row_container)
+    ));
+
+    let val_filter = val_filter.clone();
+    update_table(s, table_name, val_filter)
+}
+
+fn create_row_container (selected_row: Arc<Mutex<Option<DBRow>>>) -> ScrollView<NamedView<SelectView<DBRow>>> {
+    let selected_row_clone = selected_row.clone();
+    let selected_row_submit_clone = selected_row.clone();
+    SelectView::<DBRow>::new()
+        .on_select( move |s, row| {
+            if let Ok(mut selected_row) = selected_row_clone.lock() {
+                *selected_row = Some(row.to_owned());
+            } else {
+                s.add_layer(Dialog::info("Failed to lock mutex."));
+            }
+        })
+        .on_submit(move |s, row| {
+            if let Err(_) = s.focus_name("db_helper_button") {
+                s.add_layer(Dialog::info("View not found."));
+            }
+            if let Ok(mut selected_row) = selected_row_submit_clone.lock() {
+                *selected_row = Some(row.to_owned());
+            }
+        }).with_name("main_table").scrollable()
 }
 
 fn create_buttons (selected_row: Arc<Mutex<Option<DBRow>>>, val_filter: Arc<Mutex<String>>, table_name: &str) -> LinearLayout {
@@ -89,27 +130,6 @@ fn handle_filter_db_rows (s: &mut Cursive, val_filter: Arc<Mutex<String>>, table
 
 }
 
-fn create_row_container (selected_row: Arc<Mutex<Option<DBRow>>>) -> ScrollView<NamedView<SelectView<DBRow>>> {
-    let selected_row_clone = selected_row.clone();
-    let selected_row_submit_clone = selected_row.clone();
-    SelectView::<DBRow>::new()
-        .on_select( move |s, row| {
-            if let Ok(mut selected_row) = selected_row_clone.lock() {
-                *selected_row = Some(row.to_owned());
-            } else {
-                s.add_layer(Dialog::info("Failed to lock mutex."));
-            }
-        })
-        .on_submit(move |s, row| {
-            if let Err(_) = s.focus_name("db_helper_button") {
-                s.add_layer(Dialog::info("View not found."));
-            }
-            if let Ok(mut selected_row) = selected_row_submit_clone.lock() {
-                *selected_row = Some(row.to_owned());
-            }
-        }).with_name("main_table").scrollable()
-}
-
 fn handle_delete_db_row(s: &mut Cursive, selected_row: Arc<Mutex<Option<DBRow>>>, val_filter: Arc<Mutex<String>>, table_name: &str) {
     match selected_row.lock() {
         Ok(mut selected_row) => {
@@ -136,27 +156,6 @@ fn handle_delete_db_row(s: &mut Cursive, selected_row: Arc<Mutex<Option<DBRow>>>
             s.add_layer(Dialog::info("Failed to lock mutex."));
         },
     }
-}
-
-fn draw_table (s: &mut Cursive, table_name: &str) -> Result<()> {
-    s.pop_layer();
-
-    let selected_row = Arc::new(Mutex::new(Option::<DBRow>::None));
-    let val_filter = Arc::new(Mutex::new(String::new()));
-
-
-    let buttons = create_buttons(selected_row.clone(), val_filter.clone(), table_name);
-    let row_container = create_row_container(selected_row);
-
-    s.add_layer(Dialog::around(
-        LinearLayout::horizontal()
-            .child(buttons)
-            .child(DummyView)
-            .child(row_container)
-    ));
-
-    let val_filter = val_filter.clone();
-    update_table(s, table_name, val_filter)
 }
 
 fn update_table(s: &mut Cursive, table_name: &str, val_filter: Arc<Mutex<String>>) -> Result<()> {

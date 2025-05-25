@@ -4,7 +4,7 @@ use color_eyre::Result;
 use rusqlite::{params, types::FromSql, Connection};
 use chrono::DateTime;
 
-static DB_PATH: &str = "./data.db";
+use crate::cli_args::ARGS;
 
 pub struct DBRow {
     timestamp: u64,
@@ -72,7 +72,7 @@ impl FromSql for ColumnKind {
 }
 
 pub fn delete_row_from_table (row: &DBRow, table_name: &str) -> Result<usize> {
-    let conn = Connection::open(DB_PATH)?;
+    let conn = Connection::open(&ARGS.db_path)?;
     let query = format!(
         "DELETE FROM {} WHERE timestamp = ?1 and topic = ?2 and value = ?3;",
         table_name
@@ -84,7 +84,7 @@ pub fn delete_row_from_table (row: &DBRow, table_name: &str) -> Result<usize> {
 }
 
 pub fn get_all_from_table (table_name: &str) -> Result<Vec<DBRow>> {
-    let conn = Connection::open(DB_PATH)?;
+    let conn = Connection::open(&ARGS.db_path)?;
     let mut statement = conn.prepare(&format!("SELECT * FROM {};", table_name))?;
 
     let rows_iter = statement.query_map([], |row| {
@@ -133,7 +133,7 @@ impl DBRow {
 }
 
 pub fn get_tables () -> Result<Vec<String>> {
-    let conn = Connection::open(DB_PATH)?;
+    let conn = Connection::open(&ARGS.db_path)?;
     let mut statement = conn.prepare("SELECT name FROM sqlite_master WHERE type='table';")?;
     let tables_iter = statement
         .query_map([], |row| { row.get::<usize, String>(0) })?;
@@ -150,7 +150,7 @@ pub fn get_tables () -> Result<Vec<String>> {
 }
 
 pub fn setup_db () -> Result<()> {
-    let connection = Connection::open(DB_PATH)?;
+    let connection = Connection::open(&ARGS.db_path)?;
     connection.execute("
         CREATE TABLE if not exists MEASUREMENTS (
                 timestamp int,

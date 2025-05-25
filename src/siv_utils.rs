@@ -15,7 +15,7 @@ use cursive::{
     XY
 };
 
-use crate::tui_tables::db_explorer;
+use crate::tui_tables::draw_db_explorer;
 
 pub fn check_config(s: &mut Cursive) {
     s.add_layer(TextView::new(""));
@@ -24,13 +24,13 @@ pub fn check_config(s: &mut Cursive) {
             view.buttons_mut()
                 .for_each(|i| {
                     i.set_callback(|s| {
-                        db_explorer(s);
+                        draw_db_explorer(s);
                     });
                 });
 
         s.add_layer(view);
     } else {
-        db_explorer(s);
+        draw_db_explorer(s);
     }
 }
 
