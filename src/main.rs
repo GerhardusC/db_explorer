@@ -3,22 +3,20 @@ mod tui_tables;
 mod siv_utils;
 
 use color_eyre::Result;
-use cursive::{ views:: TextView , Cursive, CursiveExt };
+use cursive::{ Cursive, CursiveExt };
 use db_interactions::setup_db;
-use tui_tables::init_table_selection;
-use siv_utils::{draw_bottom_bar, info, quit, show_help};
+use tui_tables::db_explorer;
+use siv_utils::{check_config, draw_bottom_bar, info, quit, show_help};
 
 fn main() -> Result<()> {
     setup_db()?;
     let mut siv = Cursive::new();
     draw_bottom_bar(&mut siv);
-
-    siv.add_layer(TextView::new(""));
-    info(&mut siv);
+    check_config(&mut siv);
 
     siv.add_global_callback('q', quit);
     siv.add_global_callback('i', info);
-    siv.add_global_callback('t', init_table_selection);
+    siv.add_global_callback('t', db_explorer);
     siv.add_global_callback('h', show_help);
 
     siv.run();

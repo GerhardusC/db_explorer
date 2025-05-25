@@ -15,6 +15,25 @@ use cursive::{
     XY
 };
 
+use crate::tui_tables::db_explorer;
+
+pub fn check_config(s: &mut Cursive) {
+    s.add_layer(TextView::new(""));
+    if let Err(_) = s.load_toml("./config.toml") {
+        let mut view = Dialog::info("No config file found, using default styles");
+            view.buttons_mut()
+                .for_each(|i| {
+                    i.set_callback(|s| {
+                        db_explorer(s);
+                    });
+                });
+
+        s.add_layer(view);
+    } else {
+        db_explorer(s);
+    }
+}
+
 pub fn quit (s: &mut Cursive) {
     s.quit()
 }

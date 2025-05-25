@@ -8,7 +8,7 @@ use cursive::{
 };
 use crate::db_interactions::{get_tables, get_all_from_table, DBRow, delete_row_from_table};
 
-pub fn init_table_selection (s: &mut Cursive) {
+pub fn db_explorer (s: &mut Cursive) {
     s.pop_layer();
     if let Some(_) = s.call_on_name("tables_list", |_v: &mut Dialog| {}) {
         s.pop_layer();
