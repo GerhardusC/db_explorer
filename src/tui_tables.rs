@@ -39,51 +39,54 @@ pub fn init_table_selection (s: &mut Cursive) {
 fn create_buttons (selected_row: Arc<Mutex<Option<DBRow>>>, val_filter: Arc<Mutex<String>>, table_name: &str) -> LinearLayout {
     let table_name_cp = table_name.to_owned();
     let table_name_cp_cp = table_name.to_owned();
-    let val_filter_cp_for_del = val_filter.clone();
-    // let val_filter_cp_for_edit = val_filter.clone();
+
+    // Passed to handle filter
+    let val_filter_for_filter = val_filter.clone();
+
     LinearLayout::vertical()
         .child(Button::new("FILTER", move |s| {
-            let table_name_cp_for_update = table_name_cp_cp.to_owned();
-            let val_filter_cp = val_filter.clone();
-            let val_filter_cp_cp = val_filter.clone();
-            let val_filter_cp_for_edit = val_filter.clone();
-            s.add_layer(Dialog::around(
-                EditView::new()
-                    .on_edit(move |s, val, _| {
-                        if let Ok(mut val_filter) = val_filter_cp_cp.lock() {
-                            *val_filter = val.to_owned();
-                        } else {
-                            s.add_layer(Dialog::info("Something went wrong on edit."));
-                        };
-                    })
-                    .on_submit(move |s, val| {
-                        if let Ok(mut val_filter) = val_filter_cp.lock() {
-                            *val_filter = val.to_owned();
-                        } else {
-                            s.add_layer(Dialog::info("Something went wrong on submission."));
-                        };
-                    }))
-                .title("Enter Value Filter: ")
-                .button("OK", move |s| {
-                    let val_filter_cp_for_edit = val_filter_cp_for_edit.clone();
-                    if let Err(e) = update_table(s, &table_name_cp_for_update, val_filter_cp_for_edit) {
-                        s.add_layer(Dialog::info(format!("Something went wrong on submission: {}", e)));
-                    } else {
-                        s.pop_layer();
-                    };
-                })
-                .button("CANCEL", |s| {
-                    s.pop_layer();
-                })
-
-            );
+            handle_filter_db_rows(s, val_filter_for_filter.clone(), &table_name_cp);
         }))
         .child(Button::new("DELETE", move |s| { 
-            let val_filter_cp = val_filter_cp_for_del.clone();
-            let selected_row_clone = selected_row.clone();
-            handle_delete_db_row(s, selected_row_clone, val_filter_cp, &table_name_cp);
+            // Passed a reference of val_filter to handle delete, becuase table needs to be updated.
+            handle_delete_db_row(s, selected_row.clone(), val_filter.clone(), &table_name_cp_cp);
         }).with_name("db_helper_button"))
-        .child(Button::new("CANCEL", |_s| { }))
+        .child(Button::new("CANCEL", |_s| {}))
+}
+
+fn handle_filter_db_rows (s: &mut Cursive, val_filter: Arc<Mutex<String>>, table_name: &str) {
+    let table_name_cp_for_update = table_name.to_owned();
+    let val_filter_cp = val_filter.clone(); // For on Edit to update value
+    let val_filter_cp_cp = val_filter.clone(); // For on Submit to update value
+    s.add_layer(Dialog::around(
+        EditView::new()
+            .on_edit(move |s, val, _| {
+                if let Ok(mut val_filter) = val_filter_cp.lock() {
+                    *val_filter = val.to_owned();
+                } else {
+                    s.add_layer(Dialog::info("Something went wrong on edit."));
+                };
+            })
+            .on_submit(move |s, val| {
+                if let Ok(mut val_filter) = val_filter_cp_cp.lock() {
+                    *val_filter = val.to_owned();
+                } else {
+                    s.add_layer(Dialog::info("Something went wrong on submission."));
+                };
+            }))
+        .title("Enter Value Filter: ")
+        .button("OK", move |s| {
+            let val_filter = val_filter.clone(); // For updating table
+            if let Err(e) = update_table(s, &table_name_cp_for_update, val_filter) {
+                s.add_layer(Dialog::info(format!("Something went wrong on submission: {}", e)));
+            } else {
+                s.pop_layer();
+            };
+        })
+        .button("CANCEL", |s| {
+            s.pop_layer();
+        }))
+
 }
 
 fn create_row_container (selected_row: Arc<Mutex<Option<DBRow>>>) -> ScrollView<NamedView<SelectView<DBRow>>> {
@@ -114,6 +117,7 @@ fn handle_delete_db_row(s: &mut Cursive, selected_row: Arc<Mutex<Option<DBRow>>>
                 match delete_row_from_table(row, &table_name) {
                     Ok(rows_changed) => {
                         s.add_layer(Dialog::info(format!("{} rows deleted: {}", rows_changed, row)));
+                        // Filter is referenced here to update the table. This needs to read the filter to know what to render.
                         if let Err(e) = update_table(s, table_name, val_filter) {
                             s.add_layer(Dialog::info(format!("Something went wrong {}", e)));
                         };
