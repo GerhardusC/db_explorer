@@ -1,8 +1,12 @@
-use std::{fmt::Display, io::{Error, ErrorKind}, time::SystemTime};
+use std::{
+    fmt::Display,
+    io::{Error, ErrorKind},
+    time::SystemTime,
+};
 
-use color_eyre::Result;
-use rusqlite::{params, types::FromSql, Connection};
 use chrono::DateTime;
+use color_eyre::Result;
+use rusqlite::{Connection, params, types::FromSql};
 
 use crate::cli_args::ARGS;
 
@@ -15,10 +19,8 @@ pub struct DBRow {
 impl From<&DBRow> for String {
     fn from(value: &DBRow) -> Self {
         let limited_db_row = value.fix_col_lengths(20);
-        let timestamp = DateTime::from_timestamp(
-            value.timestamp as i64,
-            0
-        ).unwrap_or(SystemTime::now().into());
+        let timestamp =
+            DateTime::from_timestamp(value.timestamp as i64, 0).unwrap_or(SystemTime::now().into());
 
         format!(
             "| {} | {} | {}",
@@ -32,16 +34,19 @@ impl From<&DBRow> for String {
 impl Clone for DBRow {
     fn clone(&self) -> Self {
         DBRow {
-           timestamp: self.timestamp,
-           value: self.value.to_owned(),
-           topic: self.topic.to_owned(),
+            timestamp: self.timestamp,
+            value: self.value.to_owned(),
+            topic: self.topic.to_owned(),
         }
     }
 }
 
 impl Display for DBRow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("{} -> {} -> {}", self.timestamp, self.value, self.topic))
+        f.write_str(&format!(
+            "{} -> {} -> {}",
+            self.timestamp, self.value, self.topic
+        ))
     }
 }
 
@@ -53,7 +58,7 @@ enum ColumnKind {
 impl Display for ColumnKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ColumnKind::FLOAT(val) => f.write_str(&format!("{:.2}",val)),
+            ColumnKind::FLOAT(val) => f.write_str(&format!("{:.2}", val)),
             ColumnKind::STRING(val) => f.write_str(&format!("{}", val)),
         }
     }
@@ -71,7 +76,7 @@ impl FromSql for ColumnKind {
     }
 }
 
-pub fn delete_row_from_table (row: &DBRow, table_name: &str) -> Result<usize> {
+pub fn delete_row_from_table(row: &DBRow, table_name: &str) -> Result<usize> {
     let conn = Connection::open(&ARGS.db_path)?;
     let query = format!(
         "DELETE FROM {} WHERE timestamp = ?1 and topic = ?2 and value = ?3;",
@@ -83,13 +88,15 @@ pub fn delete_row_from_table (row: &DBRow, table_name: &str) -> Result<usize> {
     Ok(rows_changed)
 }
 
-pub fn get_all_from_table (table_name: &str) -> Result<Vec<DBRow>> {
+pub fn get_all_from_table(table_name: &str) -> Result<Vec<DBRow>> {
     let conn = Connection::open(&ARGS.db_path)?;
     let mut statement = conn.prepare(&format!("SELECT * FROM {};", table_name))?;
 
     let rows_iter = statement.query_map([], |row| {
-        let val = row.get::<usize, ColumnKind>(2).unwrap_or(ColumnKind::FLOAT(0.));
-        let curr_row = DBRow{
+        let val = row
+            .get::<usize, ColumnKind>(2)
+            .unwrap_or(ColumnKind::FLOAT(0.));
+        let curr_row = DBRow {
             timestamp: row.get(0).unwrap_or(0),
             topic: row.get(1).unwrap_or("".to_owned()),
             value: format!("{}", val),
@@ -100,10 +107,14 @@ pub fn get_all_from_table (table_name: &str) -> Result<Vec<DBRow>> {
     let rows: Result<Vec<DBRow>, rusqlite::Error> = rows_iter.into_iter().collect();
 
     if let Ok(valid_rows) = rows {
-        return Ok(valid_rows)
+        return Ok(valid_rows);
     }
 
-    return Err(Error::new(ErrorKind::Other, "Something went wrong while getting data from the table").into());
+    return Err(Error::new(
+        ErrorKind::Other,
+        "Something went wrong while getting data from the table",
+    )
+    .into());
 }
 
 fn fix_str_len(string: &str, len: usize) -> String {
@@ -123,8 +134,8 @@ fn fix_str_len(string: &str, len: usize) -> String {
 }
 
 impl DBRow {
-    fn fix_col_lengths (&self, len: usize) -> Self {
-        DBRow{
+    fn fix_col_lengths(&self, len: usize) -> Self {
+        DBRow {
             timestamp: self.timestamp,
             topic: fix_str_len(&self.topic, len),
             value: fix_str_len(&self.value, len),
@@ -132,26 +143,24 @@ impl DBRow {
     }
 }
 
-pub fn get_tables () -> Result<Vec<String>> {
+pub fn get_tables() -> Result<Vec<String>> {
     let conn = Connection::open(&ARGS.db_path)?;
     let mut statement = conn.prepare("SELECT name FROM sqlite_master WHERE type='table';")?;
-    let tables_iter = statement
-        .query_map([], |row| { row.get::<usize, String>(0) })?;
+    let tables_iter = statement.query_map([], |row| row.get::<usize, String>(0))?;
 
     let tables: Result<Vec<String>, rusqlite::Error> = tables_iter.into_iter().collect();
 
     if let Ok(tables_vec) = tables {
-        return Ok(tables_vec)
+        return Ok(tables_vec);
     }
 
-    Err(Error::new(
-        ErrorKind::Other, "Could not get db rows."
-    ).into())
+    Err(Error::new(ErrorKind::Other, "Could not get db rows.").into())
 }
 
-pub fn setup_db () -> Result<()> {
+pub fn setup_db() -> Result<()> {
     let connection = Connection::open(&ARGS.db_path)?;
-    connection.execute("
+    connection.execute(
+        "
         CREATE TABLE if not exists MEASUREMENTS (
                 timestamp int,
                 topic varchar(255),
@@ -161,7 +170,8 @@ pub fn setup_db () -> Result<()> {
         (),
     )?;
 
-    connection.execute("
+    connection.execute(
+        "
         CREATE TABLE if not exists LOGS (
                 timestamp int,
                 topic varchar(255),

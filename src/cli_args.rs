@@ -11,6 +11,4 @@ pub struct Args {
     pub db_path: String,
 }
 
-pub static ARGS: LazyLock<Args> = LazyLock::new(|| {
-    Args::parse()
-});
+pub static ARGS: LazyLock<Args> = LazyLock::new(|| Args::parse());
