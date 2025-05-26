@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use crate::db_interactions::{DBRow, delete_row_from_table, get_all_from_table, get_tables};
 use color_eyre::Result;
@@ -38,6 +38,8 @@ fn draw_table(s: &mut Cursive, table_name: &str) -> Result<()> {
 
     let selected_row = Arc::new(Mutex::new(Option::<DBRow>::None));
     let val_filter = Arc::new(Mutex::new(String::new()));
+
+    let (filter_sender, mut filter_receiver) = mpsc::channel::<Option<DBRow>>();
 
     let buttons = create_buttons(selected_row.clone(), val_filter.clone(), table_name);
     let row_container = create_row_container(selected_row);
@@ -110,10 +112,7 @@ fn handle_filter_db_rows(s: &mut Cursive, val_filter: Arc<Mutex<String>>, table_
     s.add_layer(filter_dialog);
 }
 
-fn create_filter_dialog(
-    val_filter: Arc<Mutex<String>>,
-    table_name: &str,
-) -> Dialog {
+fn create_filter_dialog(val_filter: Arc<Mutex<String>>, table_name: &str) -> Dialog {
     let val_filter_cp = val_filter.clone();
     let val_filter_cp_cp = val_filter.clone();
     let table_name = table_name.to_owned();
