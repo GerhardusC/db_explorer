@@ -1,5 +1,6 @@
 mod cli_args;
 mod db_interactions;
+mod nui_logs;
 mod siv_utils;
 mod test;
 mod tui_logs;
@@ -9,7 +10,8 @@ use color_eyre::Result;
 use cursive::{Cursive, CursiveExt};
 use db_interactions::setup_db;
 use siv_utils::{check_config, draw_bottom_bar, draw_startup_popup, info, quit, show_help};
-use tui_logs::draw_logs;
+// use tui_logs::draw_logs;
+use nui_logs::draw_nui_logs;
 use tui_tables::draw_db_explorer;
 
 fn main() -> Result<()> {
@@ -17,12 +19,12 @@ fn main() -> Result<()> {
     let mut siv = Cursive::new();
     draw_bottom_bar(&mut siv);
     check_config(&mut siv);
-    draw_startup_popup(&mut siv);
+    // draw_startup_popup(&mut siv);
 
     siv.add_global_callback('q', quit);
     siv.add_global_callback('i', info);
     siv.add_global_callback('t', draw_db_explorer);
-    siv.add_global_callback('l', draw_logs);
+    siv.add_global_callback('l', draw_nui_logs);
     siv.add_global_callback('h', show_help);
 
     siv.run();
