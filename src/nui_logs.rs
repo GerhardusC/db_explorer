@@ -1,10 +1,10 @@
-use std::{io::{Error, ErrorKind}, sync::{mpsc::{self, Sender}, Arc, Mutex}, thread, time::Duration};
+use std::{io::{Error, ErrorKind}, sync::{Arc, Mutex}, thread, time::Duration};
 use color_eyre::Result;
 
 use async_channel::Receiver;
 use cursive::{view::Nameable, views::{Dialog, SelectView}, Cursive};
 use mosquitto_rs::{Client, Event, QoS};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{self, UnboundedSender};
 
 struct ConnectOptions {}
 
@@ -15,14 +15,16 @@ enum LogEvent {
 
 enum ConnectionEvent {
     Connect(ConnectOptions),
+    Disconnect,
+    Reconnect(ConnectOptions),
 }
 
 pub fn draw_nui_logs(s: &mut Cursive) {
     s.pop_layer();
 
     // We can make the sender of events scoped here, so the sender can be passed across component.
-    let (event_sender, event_receiver) = mpsc::channel::<LogEvent>();
-    let (data_collection_event_sender, data_collection_event_receiver) = mpsc::channel::<ConnectionEvent>();
+    let (event_sender, mut event_receiver) = mpsc::unbounded_channel::<LogEvent>();
+    let (data_collection_event_sender, mut data_collection_event_receiver) = mpsc::unbounded_channel::<ConnectionEvent>();
 
     let event_sender_mqtt = event_sender.clone();
     let event_sender_internal = event_sender.clone();
@@ -30,12 +32,16 @@ pub fn draw_nui_logs(s: &mut Cursive) {
     // UI event sender.
     let sink = s.cb_sink().to_owned();
     // We are forced to grab the receiver out of the async function, because we want to cancel
-    let receiver: Arc<Mutex<Option<Receiver<Event>>>> = Arc::new(Mutex::new(None));
     // it from the other thread.
+    let receiver: Arc<Mutex<Option<Receiver<Event>>>> = Arc::new(Mutex::new(None));
     let receiver_cancel = receiver.clone();
     // Spawn task that will call on UI to update UI
     thread::spawn(move || {
-        while let Ok(event) = event_receiver.recv() {
+        
+        let sender = data_collection_event_sender.clone();
+        sender.send(ConnectionEvent::Connect(ConnectOptions {  }));
+        while let Some(event) = event_receiver.blocking_recv() {
+            let sender_cp = sender.clone();
             let event_sender_internal_cp = event_sender_internal.clone();
             match event {
                 LogEvent::Message(msg) => {
@@ -56,6 +62,7 @@ pub fn draw_nui_logs(s: &mut Cursive) {
             };
         }
     });
+    
     // let receiver_collection = receiver.clone();
     thread::spawn(move || {
         // Data collection thread that will pass back events to handler.
@@ -65,31 +72,49 @@ pub fn draw_nui_logs(s: &mut Cursive) {
             .unwrap();
 
         rt.block_on(async {
-            let new_receiver = mqtt_create_client().await.unwrap();
-            if let Ok(mut receiver) = receiver.lock() {
-                // The client itself is returned, but unused.
-                *receiver = Some(new_receiver.1);
-            }
+            if let Some(evt) = data_collection_event_receiver.recv().await {
+                match evt {
+                    ConnectionEvent::Connect(connect_options) => {
+                        let new_receiver = mqtt_create_client().await.unwrap();
+                        if let Ok(mut receiver) = receiver.lock() {
+                            *receiver = Some(new_receiver.1);
+                        }
 
-            let event_sender_mqtt = event_sender_mqtt.clone();
-            let active_receiver = receiver.lock().unwrap();
-            if let Some(ref receiver) = *active_receiver {
-                receive_messages(receiver, event_sender_mqtt).await;
-            }
-
-                // Give some time before locking the mux for a cancel signal to be read if
-                // needed. Check if this can be removed later, maybe async runtime deals with
-                // it.
-
-            if let Ok(receiver) = receiver.lock() {
-                // The client itself is returned, but unused.
-                match *receiver {
-                    Some(ref recv) => {
-                        recv.close();
+                        let event_sender_mqtt = event_sender_mqtt.clone();
+                        let active_receiver = receiver.lock().unwrap();
+                        if let Some(ref receiver) = *active_receiver {
+                            receive_messages(receiver, event_sender_mqtt).await;
+                        }
+                    }
+,
+                    ConnectionEvent::Disconnect => {
+                        if let Ok(receiver) = receiver.lock() {
+                            match *receiver {
+                                Some(ref recv) => {
+                                    recv.close();
+                                },
+                                None => {},
+                            };
+                        }
                     },
-                    None => {},
-                };
-            }
+                    ConnectionEvent::Reconnect(connect_options) => {
+                        if let Ok(receiver) = receiver.lock() {
+                            match *receiver {
+                                Some(ref recv) => {
+                                    recv.close();
+                                },
+                                None => {},
+                            };
+                        }
+                        let event_sender_mqtt = event_sender_mqtt.clone();
+                        let active_receiver = receiver.lock().unwrap();
+                        if let Some(ref receiver) = *active_receiver {
+                            receive_messages(receiver, event_sender_mqtt).await;
+                        }
+                    },
+                }
+
+            };
         });
 
     });
@@ -116,7 +141,7 @@ async fn mqtt_create_client () -> Result<(Client, Receiver<Event>)> {
 
 async fn receive_messages(
     async_channel_receiver: &Receiver<Event>,
-    sender: Sender<LogEvent>,
+    sender: UnboundedSender<LogEvent>,
 ){
     while let Ok(res) = async_channel_receiver.recv().await {
         match res {
