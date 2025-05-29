@@ -282,7 +282,7 @@ pub fn draw_logs(s: &mut Cursive) {
         .child(LinearLayout::horizontal()
             .child(LinearLayout::vertical()
                 .child(
-                    TextView::new("Current host: ")
+                    TextView::new("Current host:  ")
                         .style(Style::from(Effect::Bold))
                         .style(Style::from(ColorStyle::new(
                             Color::Dark(BaseColor::Black),

@@ -1,6 +1,5 @@
 mod cli_args;
 mod db_interactions;
-mod nui_logs;
 mod siv_utils;
 mod test;
 mod tui_logs;
@@ -11,7 +10,6 @@ use cursive::{Cursive, CursiveExt};
 use db_interactions::setup_db;
 use siv_utils::{check_config, draw_bottom_bar, info, quit, show_help};
 use tui_logs::draw_logs;
-// use nui_logs::{draw_logs, spawn_data_collection};
 use tui_tables::draw_db_explorer;
 
 fn main() -> Result<()> {
