@@ -19,6 +19,8 @@ use cursive::{
 use mosquitto_rs::{Client, Event, QoS};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
+use crate::cli_args::ARGS;
+
 async fn receive_messages(
     async_channel_receiver: Arc<Mutex<Receiver<Event>>>,
     sender: UnboundedSender<String>,
@@ -48,22 +50,70 @@ async fn receive_messages(
     }
 }
 
+enum UIEvent {
+    UpdateTopic(String),
+    UpdateHost(String),
+}
+
+struct UIState {
+    topic: String,
+    host: String,
+}
+
 async fn log_collection_async(
     log_sender: UnboundedSender<String>,
     done_receiver: UnboundedReceiver<bool>,
-    mut topic_receiver: UnboundedReceiver<String>,
+    mut ui_event_receiver: UnboundedReceiver<UIEvent>,
 ) -> Result<()> {
-    // let topic = topic_receiver.recv().await.unwrap_or_else(|| {"/#".to_owned()});
     let done_receiver = Arc::new(Mutex::new(done_receiver));
+    // UI state can live here.
+    let state = Arc::new(Mutex::new(UIState{
+        topic: (&ARGS.topic).to_owned(),
+        host: (&ARGS.broker_ip).to_owned()
+    }));
 
-    while let Some(topic) = topic_receiver.recv().await {
+    while let Some(ui_event) = ui_event_receiver.recv().await {
+        let state_cp = state.clone();
         let client = Client::with_auto_id()?;
+        
+        match ui_event {
+            UIEvent::UpdateTopic(new_topic) => {
+                if let Ok(mut state) = state_cp.lock() {
+                    (*state).topic = new_topic;
+                };
+            },
+            UIEvent::UpdateHost(new_host) => {
+                if let Ok(mut state) = state_cp.lock() {
+                    (*state).host = new_host;
+                };
+            },
+        }
+
+        let host;
+        {
+            let lock = state_cp.lock();
+            host = if let Ok(ref state) = lock {
+                (*state).host.to_owned()
+            } else {
+                "localhost".to_owned()
+            };
+        }
+
         if let Ok(e) = client
-            .connect("oldlaptop.local", 1883, Duration::from_secs(5), None)
+            .connect(&host, 1883, Duration::from_secs(5), None)
             .await
         {
             log_sender.send(format!("{}", e))?;
         };
+        let topic;
+        {
+            let lock = state_cp.lock();
+            topic = if let Ok(ref state) = lock {
+                (*state).topic.to_owned()
+            } else {
+                "/#".to_owned()
+            };
+        }
 
         let done_receiver_cp = done_receiver.clone();
         let log_sender = log_sender.clone();
@@ -115,7 +165,7 @@ async fn race_done_receiver(
 fn spawn_data_collection_thread(
     log_sender: UnboundedSender<String>,
     done_receiver: UnboundedReceiver<bool>,
-    topic_receiver: UnboundedReceiver<String>,
+    ui_event_receiver: UnboundedReceiver<UIEvent>,
 ) {
     thread::spawn(|| {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -124,7 +174,7 @@ fn spawn_data_collection_thread(
 
         if let Ok(rt) = rt {
             let _: Result<()> = rt.block_on(async move {
-                log_collection_async(log_sender, done_receiver, topic_receiver).await
+                log_collection_async(log_sender, done_receiver, ui_event_receiver).await
             });
         }
     });
@@ -151,64 +201,111 @@ pub fn draw_logs(s: &mut Cursive) {
 
     let (log_sender, log_receiver) = mpsc::unbounded_channel::<String>();
     let (done_sender, done_receiver) = mpsc::unbounded_channel::<bool>();
-    let (topic_sender, topic_receiver) = mpsc::unbounded_channel::<String>();
+    let (topic_sender, topic_receiver) = mpsc::unbounded_channel::<UIEvent>();
 
     spawn_data_collection_thread(log_sender, done_receiver, topic_receiver);
     spawn_log_receiver_thread(s, log_receiver);
 
     let done_sender_cp = done_sender.clone();
+    let done_sender_cp_cp = done_sender.clone();
     let topic_sender_cp = topic_sender.clone();
+    let topic_sender_cp_cp = topic_sender.clone();
+
     let buttons = LinearLayout::horizontal()
-        .child(Button::new("EDIT TOPIC", move |s| {
-            let topic_sender_cp = topic_sender.clone();
-            let topic_sender_cp_cp = topic_sender.clone();
-            let done_sender_cp = done_sender_cp.clone();
-            let done_sender_cp_cp = done_sender_cp.clone();
+        .child(LinearLayout::vertical()
+            .child(Button::new("EDIT HOST", move |s| {
+                
+                let event_sender1 = topic_sender_cp.clone();
+                let event_sender2 = topic_sender_cp.clone();
+                let done_sender1 = done_sender_cp.clone();
+                let done_sender2 = done_sender_cp.clone();
 
-            s.add_layer(
-                Dialog::around(
-                    EditView::new()
-                        .on_edit(|s, val, size| {
-                            s.call_on_name("current_topic", |v: &mut TextView| {
-                                v.set_content(val);
-                            });
-                        })
-                        .on_submit(move |s, val| {
-                            s.call_on_name("current_topic", |v: &mut TextView| {
-                                done_sender_cp.send(true);
-                                let val = v.get_content().source().to_owned();
-                                topic_sender_cp.send(val);
-                            });
-                            s.pop_layer();
-                        }),
+                s.add_layer(Dialog::around(EditView::new()
+                    .on_submit(move |s, val| {
+                        let event_sender_inner1 = event_sender1.clone();
+                        let done_sender_inner1 = done_sender1.clone();
+                        s.call_on_name("current_host", move |v: &mut TextView| {
+                            v.set_content(val);
+                            done_sender_inner1.send(true);
+                            let val = v.get_content().source().to_owned();
+                            event_sender_inner1.send(UIEvent::UpdateHost(val));
+                        });
+                        s.pop_layer();
+                    })
                 )
-                .title("New topic")
-                .button("Ok", move |s| {
-                    s.call_on_name("current_topic", |v: &mut TextView| {
-                        done_sender_cp_cp.send(true);
-                        let val = v.get_content().source().to_owned();
-                        topic_sender_cp_cp.send(val);
-                    });
-                    s.pop_layer();
-                }),
-            );
-        }))
-        .child(Button::new("CLEAR LOG", |s| {
-            s.call_on_name("logs_view", |v: &mut SelectView| {
-                v.clear();
-            });
-        }))
-        .child(
-            TextView::new("Current topic: ")
-                .style(Style::from(Effect::Bold))
-                .style(Style::from(ColorStyle::new(
-                    Color::Dark(BaseColor::Black),
-                    Color::Dark(BaseColor::White),
-                ))),
-        )
-        .child(TextView::new("/#").with_name("current_topic"));
+                    .title("New host")
+                    .button("OK", move |s| {
+                        s.call_on_name("current_host", |v: &mut TextView| {
+                            done_sender2.send(true);
+                            let val = v.get_content().source().to_owned();
+                            event_sender2.send(UIEvent::UpdateHost(val));
+                        });
+                    })
+                );
+            }))
+            .child(Button::new("EDIT TOPIC", move |s| {
+                let event_sender1 = topic_sender_cp_cp.clone();
+                let event_sender2 = topic_sender_cp_cp.clone();
+                let done_sender1 = done_sender_cp_cp.clone();
+                let done_sender2 = done_sender_cp_cp.clone();
 
-    topic_sender_cp.send("/#".to_owned());
+                s.add_layer(
+                    Dialog::around(
+                        EditView::new()
+                            .on_submit(move |s, val| {
+                                s.call_on_name("current_topic", |v: &mut TextView| {
+                                    v.set_content(val);
+                                    done_sender1.send(true);
+                                    let val = v.get_content().source().to_owned();
+                                    event_sender1.send(UIEvent::UpdateTopic(val));
+                                });
+                                s.pop_layer();
+                            }),
+                    )
+                    .title("New topic")
+                    .button("Ok", move |s| {
+                        s.call_on_name("current_topic", |v: &mut TextView| {
+                            done_sender2.send(true);
+                            let val = v.get_content().source().to_owned();
+                            event_sender2.send(UIEvent::UpdateTopic(val));
+                        });
+                        s.pop_layer();
+                    }),
+                );
+            }))
+            .child(Button::new("CLEAR LOG", |s| {
+                s.call_on_name("logs_view", |v: &mut SelectView| {
+                    v.clear();
+                });
+            }))
+        )
+        .child(LinearLayout::horizontal()
+            .child(LinearLayout::vertical()
+                .child(
+                    TextView::new("Current host:  ")
+                        .style(Style::from(Effect::Bold))
+                        .style(Style::from(ColorStyle::new(
+                            Color::Dark(BaseColor::Black),
+                            Color::Dark(BaseColor::White),
+                        ))),
+                )
+                .child(
+                    TextView::new("Current topic: ")
+                        .style(Style::from(Effect::Bold))
+                        .style(Style::from(ColorStyle::new(
+                            Color::Dark(BaseColor::Black),
+                            Color::Dark(BaseColor::White),
+                        ))),
+                )
+            )
+            .child(LinearLayout::vertical()
+                .child(TextView::new(&ARGS.broker_ip).with_name("current_host"))
+                .child(TextView::new(&ARGS.topic).with_name("current_topic"))
+            )
+        )
+;
+
+    topic_sender.send(UIEvent::UpdateTopic("/#".to_owned()));
     let logs_view = Dialog::around(ScrollView::new(
         OnEventView::new(SelectView::<String>::new().with_name("logs_view")).on_event(
             't',

@@ -10,5 +10,5 @@ color-eyre = "0.6.4"
 cursive = { version = "0.21.1", features = ["toml"] }
 mosquitto-rs = "0.11.2"
 rusqlite = "0.35.0"
-tokio = { version = "1.45.1", features = ["macros", "rt", "rt-multi-thread", "sync"] }
 async-channel = { version = "2.3.1" }
+tokio = { version = "1.45.1", features = ["macros", "rt", "rt-multi-thread", "sync"] }
