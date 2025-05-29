@@ -6,13 +6,12 @@ mod test;
 mod tui_logs;
 mod tui_tables;
 
-use tokio::sync::mpsc;
 use color_eyre::Result;
 use cursive::{Cursive, CursiveExt};
 use db_interactions::setup_db;
-use siv_utils::{check_config, draw_bottom_bar, draw_startup_popup, info, quit, show_help};
-// use tui_logs::draw_logs;
-use nui_logs::{draw_logs, spawn_data_collection};
+use siv_utils::{check_config, draw_bottom_bar, info, quit, show_help};
+use tui_logs::draw_logs;
+// use nui_logs::{draw_logs, spawn_data_collection};
 use tui_tables::draw_db_explorer;
 
 fn main() -> Result<()> {

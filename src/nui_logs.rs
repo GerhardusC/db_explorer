@@ -106,8 +106,9 @@ fn spawn_log_event_handler (s: &mut Cursive, data_collection_event_sender: Unbou
                 LogEvent::UpdateTopic(res) => {
                     let mut old_topic = state_cp.lock().unwrap();
                     old_topic.topic = res.clone();
-                    let new_topic = state_cp.lock().unwrap();
-                    sender_cp.send(ConnectionEvent::Reconnect(ConnectOptions { topic: "/#".to_owned(), host: old_topic.host.clone() }));
+                    let mut new_topic = state_cp.lock().unwrap();
+                    (*new_topic).topic = res.clone();
+                    sender_cp.send(ConnectionEvent::Reconnect(ConnectOptions { topic: res.to_owned(), host: old_topic.host.clone() }));
                 },
                 LogEvent::UpdateHost(host) => {
 

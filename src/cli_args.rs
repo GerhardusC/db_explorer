@@ -10,7 +10,7 @@ pub struct Args {
     #[arg(short, long, default_value = "./data.db")]
     pub db_path: String,
     /// Initial host to connect to via mqtt
-    #[arg(short, long, default_value = "oldlaptop.local")]
+    #[arg(short, long, default_value = "localhost")]
     pub broker_ip: String,
     /// Initial topic to subscribe to via mqtt
     #[arg(short, long, default_value = "/#")]
