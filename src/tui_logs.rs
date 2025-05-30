@@ -219,57 +219,57 @@ pub fn draw_logs(s: &mut Cursive) {
     let topic_sender_cp_cp = topic_sender.clone();
 
     let buttons = LinearLayout::vertical()
-            .child(Button::new("EDIT HOST", move |s| {
-                let event_sender1 = topic_sender_cp.clone();
-                let done_sender1 = done_sender_cp.clone();
-                let view = EditFieldDialogCreator::new(
-                    event_sender1, done_sender1, FieldToUpdate::Host
-                );
-                s.add_layer(view.create_view());
-
-            }))
-            .child(Button::new("EDIT TOPIC", move |s| {
-                let event_sender1 = topic_sender_cp_cp.clone();
-                let done_sender1 = done_sender_cp_cp.clone();
-                let view = EditFieldDialogCreator::new(
-                    event_sender1, done_sender1, FieldToUpdate::Topic
-                );
-                s.add_layer(view.create_view());
-
-            }))
-            .child(Button::new("CLEAR LOG", |s| {
-                s.call_on_name("logs_view", |v: &mut SelectView| {
-                    v.clear();
-                });
-            }));
-
-    let headings = LinearLayout::vertical()
-            .child(LinearLayout::horizontal()
-                .child(
-                    TextView::new("Current host:  ")
-                        .style(Style::from(Effect::Bold))
-                        .style(Style::from(ColorStyle::new(
-                            Color::Dark(BaseColor::Black),
-                            Color::Dark(BaseColor::White),
-                        ))),
-                )
-                .child(TextView::new(&ARGS.broker_ip).with_name("current_host"))
-            )
-            .child(LinearLayout::horizontal()
-                .child(
-                    TextView::new("Current topic: ")
-                        .style(Style::from(Effect::Bold))
-                        .style(Style::from(ColorStyle::new(
-                            Color::Dark(BaseColor::Black),
-                            Color::Dark(BaseColor::White),
-                        ))),
-                )
-                .child(TextView::new(&ARGS.topic).with_name("current_topic"))
+        .child(Button::new("EDIT HOST", move |s| {
+            let event_sender1 = topic_sender_cp.clone();
+            let done_sender1 = done_sender_cp.clone();
+            let view = EditFieldDialogCreator::new(
+                event_sender1, done_sender1, FieldToUpdate::Host
             );
+            s.add_layer(view.create_view());
+
+        }))
+        .child(Button::new("EDIT TOPIC", move |s| {
+            let event_sender1 = topic_sender_cp_cp.clone();
+            let done_sender1 = done_sender_cp_cp.clone();
+            let view = EditFieldDialogCreator::new(
+                event_sender1, done_sender1, FieldToUpdate::Topic
+            );
+            s.add_layer(view.create_view());
+
+        }))
+        .child(Button::new("CLEAR LOG", |s| {
+            s.call_on_name("logs_view", |v: &mut SelectView| {
+                v.clear();
+            });
+        }));
+
+    let labels = LinearLayout::vertical()
+        .child(LinearLayout::horizontal()
+            .child(
+                TextView::new("Current host:  ")
+                    .style(Style::from(Effect::Bold))
+                    .style(Style::from(ColorStyle::new(
+                        Color::Dark(BaseColor::Black),
+                        Color::Dark(BaseColor::White),
+                    ))),
+            )
+            .child(TextView::new(&ARGS.broker_ip).with_name("current_host"))
+        )
+        .child(LinearLayout::horizontal()
+            .child(
+                TextView::new("Current topic: ")
+                    .style(Style::from(Effect::Bold))
+                    .style(Style::from(ColorStyle::new(
+                        Color::Dark(BaseColor::Black),
+                        Color::Dark(BaseColor::White),
+                    ))),
+            )
+            .child(TextView::new(&ARGS.topic).with_name("current_topic"))
+        );
 
     let form = LinearLayout::horizontal()
         .child(buttons)
-        .child(headings);
+        .child(labels);
 
     // Initial message. Both topic sender and done sender are consumed by this step.
     topic_sender.send(UIEvent::UpdateTopic((&ARGS.topic).to_owned()));
