@@ -216,64 +216,22 @@ pub fn draw_logs(s: &mut Cursive) {
     let buttons = LinearLayout::horizontal()
         .child(LinearLayout::vertical()
             .child(Button::new("EDIT HOST", move |s| {
-                
                 let event_sender1 = topic_sender_cp.clone();
-                let event_sender2 = topic_sender_cp.clone();
                 let done_sender1 = done_sender_cp.clone();
-                let done_sender2 = done_sender_cp.clone();
-
-                s.add_layer(Dialog::around(EditView::new()
-                    .on_submit(move |s, val| {
-                        let event_sender_inner1 = event_sender1.clone();
-                        let done_sender_inner1 = done_sender1.clone();
-                        s.call_on_name("current_host", move |v: &mut TextView| {
-                            v.set_content(val);
-                            done_sender_inner1.send(true);
-                            let val = v.get_content().source().to_owned();
-                            event_sender_inner1.send(UIEvent::UpdateHost(val));
-                        });
-                        s.pop_layer();
-                    })
-                )
-                    .title("New host")
-                    .button("OK", move |s| {
-                        s.call_on_name("current_host", |v: &mut TextView| {
-                            done_sender2.send(true);
-                            let val = v.get_content().source().to_owned();
-                            event_sender2.send(UIEvent::UpdateHost(val));
-                        });
-                    })
+                let view = EditFieldDialogCreator::new(
+                    event_sender1, done_sender1, FieldToUpdate::Host
                 );
+                s.add_layer(view.create_view());
+
             }))
             .child(Button::new("EDIT TOPIC", move |s| {
                 let event_sender1 = topic_sender_cp_cp.clone();
-                let event_sender2 = topic_sender_cp_cp.clone();
                 let done_sender1 = done_sender_cp_cp.clone();
-                let done_sender2 = done_sender_cp_cp.clone();
-
-                s.add_layer(
-                    Dialog::around(
-                        EditView::new()
-                            .on_submit(move |s, val| {
-                                s.call_on_name("current_topic", |v: &mut TextView| {
-                                    v.set_content(val);
-                                    done_sender1.send(true);
-                                    let val = v.get_content().source().to_owned();
-                                    event_sender1.send(UIEvent::UpdateTopic(val));
-                                });
-                                s.pop_layer();
-                            }),
-                    )
-                    .title("New topic")
-                    .button("Ok", move |s| {
-                        s.call_on_name("current_topic", |v: &mut TextView| {
-                            done_sender2.send(true);
-                            let val = v.get_content().source().to_owned();
-                            event_sender2.send(UIEvent::UpdateTopic(val));
-                        });
-                        s.pop_layer();
-                    }),
+                let view = EditFieldDialogCreator::new(
+                    event_sender1, done_sender1, FieldToUpdate::Topic
                 );
+                s.add_layer(view.create_view());
+
             }))
             .child(Button::new("CLEAR LOG", |s| {
                 s.call_on_name("logs_view", |v: &mut SelectView| {
@@ -306,7 +264,7 @@ pub fn draw_logs(s: &mut Cursive) {
             )
         );
 
-    // Initial message.
+    // Initial message. Both topic sender and done sender are consumed by this step.
     topic_sender.send(UIEvent::UpdateTopic((&ARGS.topic).to_owned()));
     let logs_view = Dialog::around(ScrollView::new(
         OnEventView::new(SelectView::<String>::new().with_name("logs_view")).on_event(
@@ -347,19 +305,19 @@ impl FieldToUpdate {
 }
 
 #[derive(Clone)]
-struct EditFieldDialogCreater {
+struct EditFieldDialogCreator {
     event_sender: UnboundedSender<UIEvent>,
     done_sender: UnboundedSender<bool>,
     field_to_update: FieldToUpdate,
 }
 
-impl EditFieldDialogCreater {
+impl EditFieldDialogCreator {
     fn new(
         event_sender: UnboundedSender<UIEvent>,
         done_sender: UnboundedSender<bool>,
         field_to_update: FieldToUpdate
-    ) -> EditFieldDialogCreater {
-        EditFieldDialogCreater{ event_sender, done_sender, field_to_update }
+    ) -> EditFieldDialogCreator {
+        EditFieldDialogCreator{ event_sender, done_sender, field_to_update }
     }
 
     /** Consumes self to create view. Not chainable. */
@@ -391,32 +349,3 @@ impl EditFieldDialogCreater {
     }
 }
 
-// fn button_edit_host(s: &mut Cursive, event_sender: UnboundedSender<UIEvent>, done_sender: UnboundedSender<bool>) {
-//     // We need a clone of sender for each component.
-//     let event_sender1 = event_sender.clone();
-//     let done_sender1 = done_sender.clone();
-//     s.add_layer(
-//         Dialog::around(
-//             EditView::new()
-//                 .on_submit(move |s, val| {
-//                     s.call_on_name("current_topic", |v: &mut TextView| {
-//                         v.set_content(val);
-//                         done_sender1.send(true);
-//                         let val = v.get_content().source().to_owned();
-//                         event_sender1.send(UIEvent::UpdateTopic(val));
-//                     });
-//                     s.pop_layer();
-//                 }),
-//         )
-//         .title("New topic")
-//         .button("Ok", move |s| {
-//             s.call_on_name("current_topic", |v: &mut TextView| {
-//                 done_sender.send(true);
-//                 let val = v.get_content().source().to_owned();
-//                 event_sender.send(UIEvent::UpdateTopic(val));
-//             });
-//             s.pop_layer();
-//         }),
-//     );
-//
-// }
