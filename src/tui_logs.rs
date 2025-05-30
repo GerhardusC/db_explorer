@@ -22,29 +22,27 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use crate::cli_args::ARGS;
 
 async fn receive_messages(
-    async_channel_receiver: Arc<Mutex<Receiver<Event>>>,
+    async_channel_receiver: Receiver<Event>,
     sender: UnboundedSender<String>,
 ) -> Result<()> {
     loop {
-        if let Ok(res) = async_channel_receiver.lock() {
-            let res = res.recv().await?;
-            match res {
-                Event::Message(message) => {
-                    let msg_str = String::from_utf8(message.payload)
-                        .unwrap_or_else(|e| format!("Failed to parse string: {}", e));
+        let res = async_channel_receiver.recv().await?;
+        match res {
+            Event::Message(message) => {
+                let msg_str = String::from_utf8(message.payload)
+                    .unwrap_or_else(|e| format!("Failed to parse string: {}", e));
 
-                    let new_msg = format!("{}: {}", message.topic, msg_str);
-                    sender.send(new_msg)?;
-                }
-                Event::Connected(connection_status) => {
-                    let new_msg = format!("MQTT Connected Event: {}", connection_status);
-                    sender.send(new_msg)?;
-                }
-                Event::Disconnected(reason_code) => {
-                    let new_msg = format!("Disconnected: {}", reason_code);
-                    sender.send(new_msg)?;
-                    return Ok(());
-                }
+                let new_msg = format!("{}: {}", message.topic, msg_str);
+                sender.send(new_msg)?;
+            }
+            Event::Connected(connection_status) => {
+                let new_msg = format!("MQTT Connected Event: {}", connection_status);
+                sender.send(new_msg)?;
+            }
+            Event::Disconnected(reason_code) => {
+                let new_msg = format!("Disconnected: {}", reason_code);
+                sender.send(new_msg)?;
+                return Ok(());
             }
         }
     }
@@ -89,6 +87,8 @@ async fn log_collection_async(
             },
         }
 
+        // Creating a scope here and reading the host of state to avoid locking up the
+        // state for too long.
         let host;
         {
             let lock = state_cp.lock();
@@ -137,7 +137,7 @@ async fn race_done_receiver(
     done_receiver: Arc<Mutex<UnboundedReceiver<bool>>>,
     subscriber_receiver: Receiver<Event>,
 ) {
-    let subscriber_receiver = Arc::new(Mutex::new(subscriber_receiver));
+    let subscriber_receiver = subscriber_receiver.clone();
     let subscriber_receiver_cp = subscriber_receiver.clone();
 
     let sender_cp = log_sender.clone();
@@ -148,9 +148,7 @@ async fn race_done_receiver(
             msg = done_receiver.recv() => {
                 if let Some(_) = msg {
                     let _ = sender_cp.send("Done".to_owned());
-                    if let Ok(subscriber_receiver_cp) = subscriber_receiver_cp.lock() {
-                        subscriber_receiver_cp.close();
-                    }
+                    subscriber_receiver_cp.close();
                 }
             }
             _ = receive_messages(subscriber_receiver, sender_cp_cp) => {
@@ -220,8 +218,7 @@ pub fn draw_logs(s: &mut Cursive) {
     let topic_sender_cp = topic_sender.clone();
     let topic_sender_cp_cp = topic_sender.clone();
 
-    let buttons = LinearLayout::horizontal()
-        .child(LinearLayout::vertical()
+    let buttons = LinearLayout::vertical()
             .child(Button::new("EDIT HOST", move |s| {
                 let event_sender1 = topic_sender_cp.clone();
                 let done_sender1 = done_sender_cp.clone();
@@ -244,9 +241,9 @@ pub fn draw_logs(s: &mut Cursive) {
                 s.call_on_name("logs_view", |v: &mut SelectView| {
                     v.clear();
                 });
-            }))
-        )
-        .child(LinearLayout::vertical()
+            }));
+
+    let headings = LinearLayout::vertical()
             .child(LinearLayout::horizontal()
                 .child(
                     TextView::new("Current host:  ")
@@ -268,8 +265,11 @@ pub fn draw_logs(s: &mut Cursive) {
                         ))),
                 )
                 .child(TextView::new(&ARGS.topic).with_name("current_topic"))
-            )
-        );
+            );
+
+    let form = LinearLayout::horizontal()
+        .child(buttons)
+        .child(headings);
 
     // Initial message. Both topic sender and done sender are consumed by this step.
     topic_sender.send(UIEvent::UpdateTopic((&ARGS.topic).to_owned()));
@@ -283,7 +283,7 @@ pub fn draw_logs(s: &mut Cursive) {
         ),
     ));
 
-    let container = LinearLayout::vertical().child(buttons).child(logs_view);
+    let container = LinearLayout::vertical().child(form).child(logs_view);
 
     s.add_layer(container)
 }
