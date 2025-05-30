@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_channel::Receiver;
-use chrono::Utc;
+use chrono::{Local, Utc};
 use color_eyre::{owo_colors::OwoColorize, Result};
 use cursive::{
     Cursive,
@@ -188,7 +188,11 @@ fn spawn_log_receiver_thread(s: &mut Cursive, mut log_receiver: UnboundedReceive
                 s.call_on_name("logs_view", |v: &mut SelectView| {
                     // Really expensive, but I like the items coming in at the top, because the
                     // newest is always visible then.
-                    v.insert_item(0, msg, Utc::now().to_rfc2822());
+                    v.insert_item(
+                        0,
+                        Local::now().naive_local().format("%Y/%m/%d %H:%M:%S").to_string() + "-> " + &msg,
+                        Utc::now().to_rfc2822()
+                    );
                 });
             }));
         }
@@ -205,7 +209,10 @@ pub fn draw_logs(s: &mut Cursive) {
     let (done_sender, done_receiver) = mpsc::unbounded_channel::<bool>();
     let (topic_sender, topic_receiver) = mpsc::unbounded_channel::<UIEvent>();
 
+    // This thread is responsible for connecting and reconnecting to the mosquitto instance.
     spawn_data_collection_thread(log_sender, done_receiver, topic_receiver);
+
+    // This thread is responsible for receiving logs from mosquitto, and 
     spawn_log_receiver_thread(s, log_receiver);
 
     let done_sender_cp = done_sender.clone();
@@ -239,8 +246,8 @@ pub fn draw_logs(s: &mut Cursive) {
                 });
             }))
         )
-        .child(LinearLayout::horizontal()
-            .child(LinearLayout::vertical()
+        .child(LinearLayout::vertical()
+            .child(LinearLayout::horizontal()
                 .child(
                     TextView::new("Current host:  ")
                         .style(Style::from(Effect::Bold))
@@ -249,6 +256,9 @@ pub fn draw_logs(s: &mut Cursive) {
                             Color::Dark(BaseColor::White),
                         ))),
                 )
+                .child(TextView::new(&ARGS.broker_ip).with_name("current_host"))
+            )
+            .child(LinearLayout::horizontal()
                 .child(
                     TextView::new("Current topic: ")
                         .style(Style::from(Effect::Bold))
@@ -257,9 +267,6 @@ pub fn draw_logs(s: &mut Cursive) {
                             Color::Dark(BaseColor::White),
                         ))),
                 )
-            )
-            .child(LinearLayout::vertical()
-                .child(TextView::new(&ARGS.broker_ip).with_name("current_host"))
                 .child(TextView::new(&ARGS.topic).with_name("current_topic"))
             )
         );
@@ -320,19 +327,24 @@ impl EditFieldDialogCreator {
         EditFieldDialogCreator{ event_sender, done_sender, field_to_update }
     }
 
-    /** Consumes self to create view. Not chainable. */
+    /** Consumes self to create view.*/
     fn create_view(self) -> Dialog {
-        // We need a clone of sender for each component.
+        // We need a clone of sender for each submit and button.
         let self_clone = self.clone();
         Dialog::around(
             EditView::new()
                 .on_submit(move |s, val| {
+                    // Use 1
                     self_clone.handle_update(s, Some(val));
                 }),
         )
         .title("New topic")
         .button("Ok", move |s| {
+            // Use 2
             self.handle_update(s, None);
+        })
+        .button("Cancel", |s| {
+            s.pop_layer();
         })
     }
 
