@@ -6,7 +6,7 @@ use std::{
 
 use async_channel::Receiver;
 use chrono::Utc;
-use color_eyre::Result;
+use color_eyre::{owo_colors::OwoColorize, Result};
 use cursive::{
     Cursive,
     theme::{BaseColor, Color, ColorStyle, Effect, Style},
@@ -186,7 +186,9 @@ fn spawn_log_receiver_thread(s: &mut Cursive, mut log_receiver: UnboundedReceive
         while let Some(msg) = log_receiver.blocking_recv() {
             let _ = sink.send(Box::new(move |s| {
                 s.call_on_name("logs_view", |v: &mut SelectView| {
-                    v.add_item(msg, Utc::now().to_rfc2822());
+                    // Really expensive, but I like the items coming in at the top, because the
+                    // newest is always visible then.
+                    v.insert_item(0, msg, Utc::now().to_rfc2822());
                 });
             }));
         }
@@ -302,10 +304,10 @@ pub fn draw_logs(s: &mut Cursive) {
                 .child(TextView::new(&ARGS.broker_ip).with_name("current_host"))
                 .child(TextView::new(&ARGS.topic).with_name("current_topic"))
             )
-        )
-;
+        );
 
-    topic_sender.send(UIEvent::UpdateTopic("/#".to_owned()));
+    // Initial message.
+    topic_sender.send(UIEvent::UpdateTopic((&ARGS.topic).to_owned()));
     let logs_view = Dialog::around(ScrollView::new(
         OnEventView::new(SelectView::<String>::new().with_name("logs_view")).on_event(
             't',
@@ -320,3 +322,101 @@ pub fn draw_logs(s: &mut Cursive) {
 
     s.add_layer(container)
 }
+
+
+#[derive(Clone)]
+enum FieldToUpdate {
+    Topic,
+    Host,
+}
+
+impl FieldToUpdate {
+    fn get_element_name(&self) -> &str {
+        match self {
+            FieldToUpdate::Topic => "current_topic",
+            FieldToUpdate::Host => "current_host",
+        }
+    }
+
+    fn into_ui_event(&self, val: String) -> UIEvent {
+        match self {
+            FieldToUpdate::Topic => UIEvent::UpdateTopic(val),
+            FieldToUpdate::Host => UIEvent::UpdateHost(val),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct EditFieldDialogCreater {
+    event_sender: UnboundedSender<UIEvent>,
+    done_sender: UnboundedSender<bool>,
+    field_to_update: FieldToUpdate,
+}
+
+impl EditFieldDialogCreater {
+    fn new(
+        event_sender: UnboundedSender<UIEvent>,
+        done_sender: UnboundedSender<bool>,
+        field_to_update: FieldToUpdate
+    ) -> EditFieldDialogCreater {
+        EditFieldDialogCreater{ event_sender, done_sender, field_to_update }
+    }
+
+    /** Consumes self to create view. Not chainable. */
+    fn create_view(self) -> Dialog {
+        // We need a clone of sender for each component.
+        let self_clone = self.clone();
+        Dialog::around(
+            EditView::new()
+                .on_submit(move |s, val| {
+                    self_clone.handle_update(s, Some(val));
+                }),
+        )
+        .title("New topic")
+        .button("Ok", move |s| {
+            self.handle_update(s, None);
+        })
+    }
+
+    fn handle_update(&self, s: &mut Cursive, val: Option<&str>) {
+        s.call_on_name(self.field_to_update.get_element_name(), |v: &mut TextView| {
+            if let Some(val) = val {
+                v.set_content(val);
+            }
+            self.done_sender.send(true);
+            let val = v.get_content().source().to_owned();
+            self.event_sender.send(self.field_to_update.into_ui_event(val));
+        });
+        s.pop_layer();
+    }
+}
+
+// fn button_edit_host(s: &mut Cursive, event_sender: UnboundedSender<UIEvent>, done_sender: UnboundedSender<bool>) {
+//     // We need a clone of sender for each component.
+//     let event_sender1 = event_sender.clone();
+//     let done_sender1 = done_sender.clone();
+//     s.add_layer(
+//         Dialog::around(
+//             EditView::new()
+//                 .on_submit(move |s, val| {
+//                     s.call_on_name("current_topic", |v: &mut TextView| {
+//                         v.set_content(val);
+//                         done_sender1.send(true);
+//                         let val = v.get_content().source().to_owned();
+//                         event_sender1.send(UIEvent::UpdateTopic(val));
+//                     });
+//                     s.pop_layer();
+//                 }),
+//         )
+//         .title("New topic")
+//         .button("Ok", move |s| {
+//             s.call_on_name("current_topic", |v: &mut TextView| {
+//                 done_sender.send(true);
+//                 let val = v.get_content().source().to_owned();
+//                 event_sender.send(UIEvent::UpdateTopic(val));
+//             });
+//             s.pop_layer();
+//         }),
+//     );
+//
+// }
