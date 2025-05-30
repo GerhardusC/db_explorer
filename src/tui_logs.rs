@@ -87,16 +87,22 @@ async fn log_collection_async(
             },
         }
 
+        let host;
+        let topic;
         // Creating a scope here and reading the host of state to avoid locking up the
         // state for too long.
-        let host;
         {
             let lock = state_cp.lock();
-            host = if let Ok(ref state) = lock {
-                (*state).host.to_owned()
-            } else {
-                "localhost".to_owned()
-            };
+            match lock {
+                Ok(ref state) => {
+                    host = (*state).host.to_owned();
+                    topic = (*state).topic.to_owned();
+                },
+                Err(_) => {
+                    host = "localhost".to_owned();
+                    topic = "/#".to_owned();
+                },
+            }
         }
 
         if let Ok(e) = client
@@ -105,15 +111,6 @@ async fn log_collection_async(
         {
             log_sender.send(format!("{}", e))?;
         };
-        let topic;
-        {
-            let lock = state_cp.lock();
-            topic = if let Ok(ref state) = lock {
-                (*state).topic.to_owned()
-            } else {
-                "/#".to_owned()
-            };
-        }
 
         let done_receiver_cp = done_receiver.clone();
         let log_sender = log_sender.clone();
