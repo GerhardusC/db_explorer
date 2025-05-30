@@ -5,8 +5,8 @@ use std::{
 };
 
 use async_channel::Receiver;
-use chrono::Utc;
-use color_eyre::Result;
+use chrono::{Local, Utc};
+use color_eyre::{owo_colors::OwoColorize, Result};
 use cursive::{
     Cursive,
     theme::{BaseColor, Color, ColorStyle, Effect, Style},
@@ -22,29 +22,27 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use crate::cli_args::ARGS;
 
 async fn receive_messages(
-    async_channel_receiver: Arc<Mutex<Receiver<Event>>>,
+    async_channel_receiver: Receiver<Event>,
     sender: UnboundedSender<String>,
 ) -> Result<()> {
     loop {
-        if let Ok(res) = async_channel_receiver.lock() {
-            let res = res.recv().await?;
-            match res {
-                Event::Message(message) => {
-                    let msg_str = String::from_utf8(message.payload)
-                        .unwrap_or_else(|e| format!("Failed to parse string: {}", e));
+        let res = async_channel_receiver.recv().await?;
+        match res {
+            Event::Message(message) => {
+                let msg_str = String::from_utf8(message.payload)
+                    .unwrap_or_else(|e| format!("Failed to parse string: {}", e));
 
-                    let new_msg = format!("{}: {}", message.topic, msg_str);
-                    sender.send(new_msg)?;
-                }
-                Event::Connected(connection_status) => {
-                    let new_msg = format!("MQTT Connected Event: {}", connection_status);
-                    sender.send(new_msg)?;
-                }
-                Event::Disconnected(reason_code) => {
-                    let new_msg = format!("Disconnected: {}", reason_code);
-                    sender.send(new_msg)?;
-                    return Ok(());
-                }
+                let new_msg = format!("{}: {}", message.topic, msg_str);
+                sender.send(new_msg)?;
+            }
+            Event::Connected(connection_status) => {
+                let new_msg = format!("MQTT Connected Event: {}", connection_status);
+                sender.send(new_msg)?;
+            }
+            Event::Disconnected(reason_code) => {
+                let new_msg = format!("Disconnected: {}", reason_code);
+                sender.send(new_msg)?;
+                return Ok(());
             }
         }
     }
@@ -90,13 +88,21 @@ async fn log_collection_async(
         }
 
         let host;
+        let topic;
+        // Creating a scope here and reading the host of state to avoid locking up the
+        // state for too long.
         {
             let lock = state_cp.lock();
-            host = if let Ok(ref state) = lock {
-                (*state).host.to_owned()
-            } else {
-                "localhost".to_owned()
-            };
+            match lock {
+                Ok(ref state) => {
+                    host = (*state).host.to_owned();
+                    topic = (*state).topic.to_owned();
+                },
+                Err(_) => {
+                    host = "localhost".to_owned();
+                    topic = "/#".to_owned();
+                },
+            }
         }
 
         if let Ok(e) = client
@@ -105,15 +111,6 @@ async fn log_collection_async(
         {
             log_sender.send(format!("{}", e))?;
         };
-        let topic;
-        {
-            let lock = state_cp.lock();
-            topic = if let Ok(ref state) = lock {
-                (*state).topic.to_owned()
-            } else {
-                "/#".to_owned()
-            };
-        }
 
         let done_receiver_cp = done_receiver.clone();
         let log_sender = log_sender.clone();
@@ -137,7 +134,7 @@ async fn race_done_receiver(
     done_receiver: Arc<Mutex<UnboundedReceiver<bool>>>,
     subscriber_receiver: Receiver<Event>,
 ) {
-    let subscriber_receiver = Arc::new(Mutex::new(subscriber_receiver));
+    let subscriber_receiver = subscriber_receiver.clone();
     let subscriber_receiver_cp = subscriber_receiver.clone();
 
     let sender_cp = log_sender.clone();
@@ -148,9 +145,7 @@ async fn race_done_receiver(
             msg = done_receiver.recv() => {
                 if let Some(_) = msg {
                     let _ = sender_cp.send("Done".to_owned());
-                    if let Ok(subscriber_receiver_cp) = subscriber_receiver_cp.lock() {
-                        subscriber_receiver_cp.close();
-                    }
+                    subscriber_receiver_cp.close();
                 }
             }
             _ = receive_messages(subscriber_receiver, sender_cp_cp) => {
@@ -186,7 +181,13 @@ fn spawn_log_receiver_thread(s: &mut Cursive, mut log_receiver: UnboundedReceive
         while let Some(msg) = log_receiver.blocking_recv() {
             let _ = sink.send(Box::new(move |s| {
                 s.call_on_name("logs_view", |v: &mut SelectView| {
-                    v.add_item(msg, Utc::now().to_rfc2822());
+                    // Really expensive, but I like the items coming in at the top, because the
+                    // newest is always visible then.
+                    v.insert_item(
+                        0,
+                        Local::now().naive_local().format("%Y/%m/%d %H:%M:%S").to_string() + "-> " + &msg,
+                        Utc::now().to_rfc2822()
+                    );
                 });
             }));
         }
@@ -203,7 +204,10 @@ pub fn draw_logs(s: &mut Cursive) {
     let (done_sender, done_receiver) = mpsc::unbounded_channel::<bool>();
     let (topic_sender, topic_receiver) = mpsc::unbounded_channel::<UIEvent>();
 
+    // This thread is responsible for connecting and reconnecting to the mosquitto instance.
     spawn_data_collection_thread(log_sender, done_receiver, topic_receiver);
+
+    // This thread is responsible for receiving logs from mosquitto, and 
     spawn_log_receiver_thread(s, log_receiver);
 
     let done_sender_cp = done_sender.clone();
@@ -211,101 +215,61 @@ pub fn draw_logs(s: &mut Cursive) {
     let topic_sender_cp = topic_sender.clone();
     let topic_sender_cp_cp = topic_sender.clone();
 
-    let buttons = LinearLayout::horizontal()
-        .child(LinearLayout::vertical()
-            .child(Button::new("EDIT HOST", move |s| {
-                
-                let event_sender1 = topic_sender_cp.clone();
-                let event_sender2 = topic_sender_cp.clone();
-                let done_sender1 = done_sender_cp.clone();
-                let done_sender2 = done_sender_cp.clone();
+    let buttons = LinearLayout::vertical()
+        .child(Button::new("EDIT HOST", move |s| {
+            let event_sender1 = topic_sender_cp.clone();
+            let done_sender1 = done_sender_cp.clone();
+            let view = EditFieldDialogCreator::new(
+                event_sender1, done_sender1, FieldToUpdate::Host
+            );
+            s.add_layer(view.create_view());
 
-                s.add_layer(Dialog::around(EditView::new()
-                    .on_submit(move |s, val| {
-                        let event_sender_inner1 = event_sender1.clone();
-                        let done_sender_inner1 = done_sender1.clone();
-                        s.call_on_name("current_host", move |v: &mut TextView| {
-                            v.set_content(val);
-                            done_sender_inner1.send(true);
-                            let val = v.get_content().source().to_owned();
-                            event_sender_inner1.send(UIEvent::UpdateHost(val));
-                        });
-                        s.pop_layer();
-                    })
-                )
-                    .title("New host")
-                    .button("OK", move |s| {
-                        s.call_on_name("current_host", |v: &mut TextView| {
-                            done_sender2.send(true);
-                            let val = v.get_content().source().to_owned();
-                            event_sender2.send(UIEvent::UpdateHost(val));
-                        });
-                    })
-                );
-            }))
-            .child(Button::new("EDIT TOPIC", move |s| {
-                let event_sender1 = topic_sender_cp_cp.clone();
-                let event_sender2 = topic_sender_cp_cp.clone();
-                let done_sender1 = done_sender_cp_cp.clone();
-                let done_sender2 = done_sender_cp_cp.clone();
+        }))
+        .child(Button::new("EDIT TOPIC", move |s| {
+            let event_sender1 = topic_sender_cp_cp.clone();
+            let done_sender1 = done_sender_cp_cp.clone();
+            let view = EditFieldDialogCreator::new(
+                event_sender1, done_sender1, FieldToUpdate::Topic
+            );
+            s.add_layer(view.create_view());
 
-                s.add_layer(
-                    Dialog::around(
-                        EditView::new()
-                            .on_submit(move |s, val| {
-                                s.call_on_name("current_topic", |v: &mut TextView| {
-                                    v.set_content(val);
-                                    done_sender1.send(true);
-                                    let val = v.get_content().source().to_owned();
-                                    event_sender1.send(UIEvent::UpdateTopic(val));
-                                });
-                                s.pop_layer();
-                            }),
-                    )
-                    .title("New topic")
-                    .button("Ok", move |s| {
-                        s.call_on_name("current_topic", |v: &mut TextView| {
-                            done_sender2.send(true);
-                            let val = v.get_content().source().to_owned();
-                            event_sender2.send(UIEvent::UpdateTopic(val));
-                        });
-                        s.pop_layer();
-                    }),
-                );
-            }))
-            .child(Button::new("CLEAR LOG", |s| {
-                s.call_on_name("logs_view", |v: &mut SelectView| {
-                    v.clear();
-                });
-            }))
+        }))
+        .child(Button::new("CLEAR LOG", |s| {
+            s.call_on_name("logs_view", |v: &mut SelectView| {
+                v.clear();
+            });
+        }));
+
+    let labels = LinearLayout::vertical()
+        .child(LinearLayout::horizontal()
+            .child(
+                TextView::new("Current host:  ")
+                    .style(Style::from(Effect::Bold))
+                    .style(Style::from(ColorStyle::new(
+                        Color::Dark(BaseColor::Black),
+                        Color::Dark(BaseColor::White),
+                    ))),
+            )
+            .child(TextView::new(&ARGS.broker_ip).with_name("current_host"))
         )
         .child(LinearLayout::horizontal()
-            .child(LinearLayout::vertical()
-                .child(
-                    TextView::new("Current host:  ")
-                        .style(Style::from(Effect::Bold))
-                        .style(Style::from(ColorStyle::new(
-                            Color::Dark(BaseColor::Black),
-                            Color::Dark(BaseColor::White),
-                        ))),
-                )
-                .child(
-                    TextView::new("Current topic: ")
-                        .style(Style::from(Effect::Bold))
-                        .style(Style::from(ColorStyle::new(
-                            Color::Dark(BaseColor::Black),
-                            Color::Dark(BaseColor::White),
-                        ))),
-                )
+            .child(
+                TextView::new("Current topic: ")
+                    .style(Style::from(Effect::Bold))
+                    .style(Style::from(ColorStyle::new(
+                        Color::Dark(BaseColor::Black),
+                        Color::Dark(BaseColor::White),
+                    ))),
             )
-            .child(LinearLayout::vertical()
-                .child(TextView::new(&ARGS.broker_ip).with_name("current_host"))
-                .child(TextView::new(&ARGS.topic).with_name("current_topic"))
-            )
-        )
-;
+            .child(TextView::new(&ARGS.topic).with_name("current_topic"))
+        );
 
-    topic_sender.send(UIEvent::UpdateTopic("/#".to_owned()));
+    let form = LinearLayout::horizontal()
+        .child(buttons)
+        .child(labels);
+
+    // Initial message. Both topic sender and done sender are consumed by this step.
+    topic_sender.send(UIEvent::UpdateTopic((&ARGS.topic).to_owned()));
     let logs_view = Dialog::around(ScrollView::new(
         OnEventView::new(SelectView::<String>::new().with_name("logs_view")).on_event(
             't',
@@ -316,7 +280,81 @@ pub fn draw_logs(s: &mut Cursive) {
         ),
     ));
 
-    let container = LinearLayout::vertical().child(buttons).child(logs_view);
+    let container = LinearLayout::vertical().child(form).child(logs_view);
 
     s.add_layer(container)
 }
+
+
+#[derive(Clone)]
+enum FieldToUpdate {
+    Topic,
+    Host,
+}
+
+impl FieldToUpdate {
+    fn get_element_name(&self) -> &str {
+        match self {
+            FieldToUpdate::Topic => "current_topic",
+            FieldToUpdate::Host => "current_host",
+        }
+    }
+
+    fn into_ui_event(&self, val: String) -> UIEvent {
+        match self {
+            FieldToUpdate::Topic => UIEvent::UpdateTopic(val),
+            FieldToUpdate::Host => UIEvent::UpdateHost(val),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct EditFieldDialogCreator {
+    event_sender: UnboundedSender<UIEvent>,
+    done_sender: UnboundedSender<bool>,
+    field_to_update: FieldToUpdate,
+}
+
+impl EditFieldDialogCreator {
+    fn new(
+        event_sender: UnboundedSender<UIEvent>,
+        done_sender: UnboundedSender<bool>,
+        field_to_update: FieldToUpdate
+    ) -> EditFieldDialogCreator {
+        EditFieldDialogCreator{ event_sender, done_sender, field_to_update }
+    }
+
+    /** Consumes self to create view.*/
+    fn create_view(self) -> Dialog {
+        // We need a clone of sender for each submit and button.
+        let self_clone = self.clone();
+        Dialog::around(
+            EditView::new()
+                .on_submit(move |s, val| {
+                    // Use 1
+                    self_clone.handle_update(s, Some(val));
+                }),
+        )
+        .title("New topic")
+        .button("Ok", move |s| {
+            // Use 2
+            self.handle_update(s, None);
+        })
+        .button("Cancel", |s| {
+            s.pop_layer();
+        })
+    }
+
+    fn handle_update(&self, s: &mut Cursive, val: Option<&str>) {
+        s.call_on_name(self.field_to_update.get_element_name(), |v: &mut TextView| {
+            if let Some(val) = val {
+                v.set_content(val);
+            }
+            self.done_sender.send(true);
+            let val = v.get_content().source().to_owned();
+            self.event_sender.send(self.field_to_update.into_ui_event(val));
+        });
+        s.pop_layer();
+    }
+}
+
