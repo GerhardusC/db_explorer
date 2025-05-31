@@ -5,7 +5,7 @@ use std::{
 };
 
 use chrono::DateTime;
-use color_eyre::Result;
+use anyhow::Result;
 use rusqlite::{Connection, params, types::FromSql};
 
 use crate::cli_args::ARGS;

@@ -6,7 +6,7 @@ use std::{
 
 use async_channel::Receiver;
 use chrono::{Local, Utc};
-use color_eyre::{owo_colors::OwoColorize, Result};
+use anyhow::Result;
 use cursive::{
     Cursive,
     theme::{BaseColor, Color, ColorStyle, Effect, Style},
@@ -208,6 +208,8 @@ pub fn draw_logs(s: &mut Cursive) {
     spawn_data_collection_thread(log_sender, done_receiver, topic_receiver);
 
     // This thread is responsible for receiving logs from mosquitto, and 
+    // Cursive reference is added here for the Cursive CB sink to update the UI
+    // based on the messages from the log receiver.
     spawn_log_receiver_thread(s, log_receiver);
 
     let done_sender_cp = done_sender.clone();
@@ -274,8 +276,8 @@ pub fn draw_logs(s: &mut Cursive) {
         OnEventView::new(SelectView::<String>::new().with_name("logs_view")).on_event(
             't',
             move |s| {
-                s.add_layer(Dialog::info("Closed"));
-                let _ = done_sender.send(true);
+                // s.add_layer(Dialog::info("Closed"));
+                // let _ = done_sender.send(true);
             },
         ),
     ));

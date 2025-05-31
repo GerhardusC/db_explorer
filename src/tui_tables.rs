@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::db_interactions::{DBRow, delete_row_from_table, get_all_from_table, get_tables};
-use color_eyre::Result;
+use anyhow::Result;
 use cursive::{
     Cursive,
     view::{Nameable, Scrollable},

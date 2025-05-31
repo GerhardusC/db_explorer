@@ -5,7 +5,7 @@ mod test;
 mod tui_logs;
 mod tui_tables;
 
-use color_eyre::Result;
+use anyhow::Result;
 use cursive::{Cursive, CursiveExt};
 use db_interactions::setup_db;
 use siv_utils::{check_config, draw_bottom_bar, info, quit, show_help};
