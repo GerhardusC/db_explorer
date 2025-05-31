@@ -194,7 +194,7 @@ fn spawn_log_receiver_thread(s: &mut Cursive, mut log_receiver: UnboundedReceive
     });
 }
 
-pub fn draw_logs(s: &mut Cursive) {
+pub fn draw_logs(s: &mut Cursive, main_menu_id: usize) {
     s.pop_layer();
     if let Some(_) = s.call_on_name("logs_view", |_v: &mut NamedView<SelectView>| {}) {
         s.pop_layer();
@@ -240,6 +240,9 @@ pub fn draw_logs(s: &mut Cursive) {
             s.call_on_name("logs_view", |v: &mut SelectView| {
                 v.clear();
             });
+        }))
+        .child(Button::new("MAIN MENU", move |s| {
+            s.set_screen(main_menu_id);
         }));
 
     let labels = LinearLayout::vertical()

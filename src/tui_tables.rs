@@ -11,7 +11,7 @@ use cursive::{
     },
 };
 
-pub fn draw_db_explorer(s: &mut Cursive) {
+pub fn draw_db_explorer(s: &mut Cursive, main_menu_id: usize) {
     s.pop_layer();
     if let Some(_) = s.call_on_name("tables_list", |_v: &mut Dialog| {}) {
         s.pop_layer();
@@ -22,24 +22,27 @@ pub fn draw_db_explorer(s: &mut Cursive) {
         tables.iter().for_each(|table_name| {
             let table_name_clone = table_name.clone();
             list.add_child(Button::new(table_name, move |s| {
-                if let Err(e) = draw_table(s, &table_name_clone) {
+                if let Err(e) = draw_table(s, &table_name_clone, main_menu_id) {
                     s.add_layer(Dialog::info(format!("Something went wrong {}", e)));
                 };
             }));
         });
+        list.add_child(Button::new("BACK", move |s| {
+            s.set_screen(main_menu_id);
+        }));
         s.add_layer(Dialog::around(list).with_name("tables_list"));
     } else {
         s.add_layer(Dialog::around(TextView::new("Tables not found.")).with_name("tables_list"));
     }
 }
 
-fn draw_table(s: &mut Cursive, table_name: &str) -> Result<()> {
+fn draw_table(s: &mut Cursive, table_name: &str, main_menu_id: usize) -> Result<()> {
     s.pop_layer();
 
     let selected_row = Arc::new(Mutex::new(Option::<DBRow>::None));
     let val_filter = Arc::new(Mutex::new(String::new()));
 
-    let buttons = create_buttons(selected_row.clone(), val_filter.clone(), table_name);
+    let buttons = create_buttons(selected_row.clone(), val_filter.clone(), table_name, main_menu_id);
     let row_container = create_row_container(selected_row);
 
     s.add_layer(Dialog::around(
@@ -82,6 +85,7 @@ fn create_buttons(
     selected_row: Arc<Mutex<Option<DBRow>>>,
     val_filter: Arc<Mutex<String>>,
     table_name: &str,
+    main_menu_id: usize
 ) -> LinearLayout {
     let table_name_cp = table_name.to_owned();
     let table_name_cp_cp = table_name.to_owned();
@@ -103,6 +107,13 @@ fn create_buttons(
             })
             .with_name("db_helper_button"),
         )
+        .child(Button::new("BACK", move |s| {
+            s.pop_layer();
+            draw_db_explorer(s, main_menu_id);
+        }))
+        .child(Button::new("MAIN MENU", move |s| {
+            s.set_screen(main_menu_id);
+        }))
 }
 
 fn handle_filter_db_rows(s: &mut Cursive, val_filter: Arc<Mutex<String>>, table_name: &str) {

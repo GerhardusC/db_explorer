@@ -10,18 +10,9 @@ use crate::{cli_args::ARGS, tui_tables::draw_db_explorer};
 
 pub fn check_config(s: &mut Cursive) {
     s.add_layer(TextView::new(""));
-    if let Err(_) = s.load_toml(include_str!("./config.toml")) {
-        let mut view = Dialog::info("No config file found, using default styles");
-        view.buttons_mut().for_each(|i| {
-            i.set_callback(|s| {
-                draw_db_explorer(s);
-            });
-        });
-
-        s.add_layer(view);
-    } else {
-        draw_db_explorer(s);
-    }
+    if let Err(e) = s.load_toml(include_str!("./config.toml")) {
+        s.add_layer(Dialog::info(format!("{:?}", e)));
+    };
 }
 
 pub fn quit(s: &mut Cursive) {
