@@ -43,7 +43,12 @@ fn draw_table(s: &mut Cursive, table_name: &str, main_menu_id: usize) -> Result<
     let selected_row = Arc::new(Mutex::new(Option::<DBRow>::None));
     let val_filter = Arc::new(Mutex::new(String::new()));
 
-    let buttons = create_buttons(selected_row.clone(), val_filter.clone(), table_name, main_menu_id);
+    let buttons = create_buttons(
+        selected_row.clone(),
+        val_filter.clone(),
+        table_name,
+        main_menu_id,
+    );
     let row_container = create_row_container(selected_row);
 
     s.add_layer(Dialog::around(
@@ -86,7 +91,7 @@ fn create_buttons(
     selected_row: Arc<Mutex<Option<DBRow>>>,
     val_filter: Arc<Mutex<String>>,
     table_name: &str,
-    main_menu_id: usize
+    main_menu_id: usize,
 ) -> LinearLayout {
     let table_name_cp = table_name.to_owned();
     let table_name_cp_cp = table_name.to_owned();

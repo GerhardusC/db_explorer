@@ -4,9 +4,9 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Result;
 use async_channel::Receiver;
 use chrono::{Local, Utc};
-use anyhow::Result;
 use cursive::{
     Cursive,
     theme::{BaseColor, Color, ColorStyle, Effect, Style},
@@ -65,26 +65,26 @@ async fn log_collection_async(
 ) -> Result<()> {
     let done_receiver = Arc::new(Mutex::new(done_receiver));
     // UI state can live here.
-    let state = Arc::new(Mutex::new(UIState{
+    let state = Arc::new(Mutex::new(UIState {
         topic: (&ARGS.topic).to_owned(),
-        host: (&ARGS.broker_ip).to_owned()
+        host: (&ARGS.broker_ip).to_owned(),
     }));
 
     while let Some(ui_event) = ui_event_receiver.recv().await {
         let state_cp = state.clone();
         let client = Client::with_auto_id()?;
-        
+
         match ui_event {
             UIEvent::UpdateTopic(new_topic) => {
                 if let Ok(mut state) = state_cp.lock() {
                     (*state).topic = new_topic;
                 };
-            },
+            }
             UIEvent::UpdateHost(new_host) => {
                 if let Ok(mut state) = state_cp.lock() {
                     (*state).host = new_host;
                 };
-            },
+            }
         }
 
         let host;
@@ -97,11 +97,11 @@ async fn log_collection_async(
                 Ok(ref state) => {
                     host = (*state).host.to_owned();
                     topic = (*state).topic.to_owned();
-                },
+                }
                 Err(_) => {
                     host = "localhost".to_owned();
                     topic = "/#".to_owned();
-                },
+                }
             }
         }
 
@@ -185,8 +185,13 @@ fn spawn_log_receiver_thread(s: &mut Cursive, mut log_receiver: UnboundedReceive
                     // newest is always visible then.
                     v.insert_item(
                         0,
-                        Local::now().naive_local().format("%Y/%m/%d %H:%M:%S").to_string() + "-> " + &msg,
-                        Utc::now().to_rfc2822()
+                        Local::now()
+                            .naive_local()
+                            .format("%Y/%m/%d %H:%M:%S")
+                            .to_string()
+                            + "-> "
+                            + &msg,
+                        Utc::now().to_rfc2822(),
                     );
                 });
             }));
@@ -207,7 +212,7 @@ pub fn draw_logs(s: &mut Cursive, main_menu_id: usize) {
     // This thread is responsible for connecting and reconnecting to the mosquitto instance.
     spawn_data_collection_thread(log_sender, done_receiver, topic_receiver);
 
-    // This thread is responsible for receiving logs from mosquitto, and 
+    // This thread is responsible for receiving logs from mosquitto, and
     // Cursive reference is added here for the Cursive CB sink to update the UI
     // based on the messages from the log receiver.
     spawn_log_receiver_thread(s, log_receiver);
@@ -221,20 +226,16 @@ pub fn draw_logs(s: &mut Cursive, main_menu_id: usize) {
         .child(Button::new("EDIT HOST", move |s| {
             let event_sender1 = topic_sender_cp.clone();
             let done_sender1 = done_sender_cp.clone();
-            let view = EditFieldDialogCreator::new(
-                event_sender1, done_sender1, FieldToUpdate::Host
-            );
+            let view =
+                EditFieldDialogCreator::new(event_sender1, done_sender1, FieldToUpdate::Host);
             s.add_layer(view.create_view());
-
         }))
         .child(Button::new("EDIT TOPIC", move |s| {
             let event_sender1 = topic_sender_cp_cp.clone();
             let done_sender1 = done_sender_cp_cp.clone();
-            let view = EditFieldDialogCreator::new(
-                event_sender1, done_sender1, FieldToUpdate::Topic
-            );
+            let view =
+                EditFieldDialogCreator::new(event_sender1, done_sender1, FieldToUpdate::Topic);
             s.add_layer(view.create_view());
-
         }))
         .child(Button::new("CLEAR LOG", |s| {
             s.call_on_name("logs_view", |v: &mut SelectView| {
@@ -246,41 +247,42 @@ pub fn draw_logs(s: &mut Cursive, main_menu_id: usize) {
         }));
 
     let labels = LinearLayout::vertical()
-        .child(LinearLayout::horizontal()
-            .child(
-                TextView::new("Current host:  ")
-                    .style(Style::from(Effect::Bold))
-                    .style(Style::from(ColorStyle::new(
-                        Color::Dark(BaseColor::Black),
-                        Color::Dark(BaseColor::White),
-                    ))),
-            )
-            .child(TextView::new(&ARGS.broker_ip).with_name("current_host"))
+        .child(
+            LinearLayout::horizontal()
+                .child(
+                    TextView::new("Current host:  ")
+                        .style(Style::from(Effect::Bold))
+                        .style(Style::from(ColorStyle::new(
+                            Color::Dark(BaseColor::Black),
+                            Color::Dark(BaseColor::White),
+                        ))),
+                )
+                .child(TextView::new(&ARGS.broker_ip).with_name("current_host")),
         )
-        .child(LinearLayout::horizontal()
-            .child(
-                TextView::new("Current topic: ")
-                    .style(Style::from(Effect::Bold))
-                    .style(Style::from(ColorStyle::new(
-                        Color::Dark(BaseColor::Black),
-                        Color::Dark(BaseColor::White),
-                    ))),
-            )
-            .child(TextView::new(&ARGS.topic).with_name("current_topic"))
+        .child(
+            LinearLayout::horizontal()
+                .child(
+                    TextView::new("Current topic: ")
+                        .style(Style::from(Effect::Bold))
+                        .style(Style::from(ColorStyle::new(
+                            Color::Dark(BaseColor::Black),
+                            Color::Dark(BaseColor::White),
+                        ))),
+                )
+                .child(TextView::new(&ARGS.topic).with_name("current_topic")),
         );
 
-    let form = LinearLayout::horizontal()
-        .child(buttons)
-        .child(labels);
+    let form = LinearLayout::horizontal().child(buttons).child(labels);
 
     // Initial message. Both topic sender and done sender are consumed by this step.
-    topic_sender.send(UIEvent::UpdateTopic((&ARGS.topic).to_owned()));
+    if let Err(e) = topic_sender.send(UIEvent::UpdateTopic((&ARGS.topic).to_owned())) {
+        s.add_layer(Dialog::info(&format!("{:?}", e)));
+    };
     let logs_view = Dialog::around(ScrollView::new(
         OnEventView::new(SelectView::<String>::new().with_name("logs_view")).on_event(
             't',
-            move |s| {
-                // s.add_layer(Dialog::info("Closed"));
-                // let _ = done_sender.send(true);
+            move |_s| {
+                // Place to add some events.
             },
         ),
     ));
@@ -289,7 +291,6 @@ pub fn draw_logs(s: &mut Cursive, main_menu_id: usize) {
 
     s.add_layer(container)
 }
-
 
 #[derive(Clone)]
 enum FieldToUpdate {
@@ -324,22 +325,23 @@ impl EditFieldDialogCreator {
     fn new(
         event_sender: UnboundedSender<UIEvent>,
         done_sender: UnboundedSender<bool>,
-        field_to_update: FieldToUpdate
+        field_to_update: FieldToUpdate,
     ) -> EditFieldDialogCreator {
-        EditFieldDialogCreator{ event_sender, done_sender, field_to_update }
+        EditFieldDialogCreator {
+            event_sender,
+            done_sender,
+            field_to_update,
+        }
     }
 
     /** Consumes self to create view.*/
     fn create_view(self) -> Dialog {
         // We need a clone of sender for each submit and button.
         let self_clone = self.clone();
-        Dialog::around(
-            EditView::new()
-                .on_submit(move |s, val| {
-                    // Use 1
-                    self_clone.handle_update(s, Some(val));
-                }),
-        )
+        Dialog::around(EditView::new().on_submit(move |s, val| {
+            // Use 1
+            self_clone.handle_update(s, Some(val));
+        }))
         .title("New topic")
         .button("Ok", move |s| {
             // Use 2
@@ -351,15 +353,23 @@ impl EditFieldDialogCreator {
     }
 
     fn handle_update(&self, s: &mut Cursive, val: Option<&str>) {
-        s.call_on_name(self.field_to_update.get_element_name(), |v: &mut TextView| {
-            if let Some(val) = val {
-                v.set_content(val);
-            }
-            self.done_sender.send(true);
-            let val = v.get_content().source().to_owned();
-            self.event_sender.send(self.field_to_update.into_ui_event(val));
-        });
+        if let Some(res) = s.call_on_name(
+            self.field_to_update.get_element_name(),
+            |v: &mut TextView| -> Result<()> {
+                if let Some(val) = val {
+                    v.set_content(val);
+                }
+                self.done_sender.send(true)?;
+                let val = v.get_content().source().to_owned();
+                self.event_sender
+                    .send(self.field_to_update.into_ui_event(val))?;
+                Ok(())
+            },
+        ) {
+            if let Err(e) = res {
+                s.add_layer(Dialog::info(&format!("{:?}", e)));
+            };
+        };
         s.pop_layer();
     }
 }
-

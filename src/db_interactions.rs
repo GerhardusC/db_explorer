@@ -4,8 +4,8 @@ use std::{
     time::SystemTime,
 };
 
-use chrono::DateTime;
 use anyhow::Result;
+use chrono::DateTime;
 use rusqlite::{Connection, params, types::FromSql};
 
 use crate::cli_args::ARGS;
