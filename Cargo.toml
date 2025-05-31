@@ -1,5 +1,5 @@
 [package]
-name = "learn_cursive"
+name = "mqttui"
 version = "0.1.0"
 edition = "2024"
 
