@@ -27,7 +27,8 @@ pub fn draw_db_explorer(s: &mut Cursive, main_menu_id: usize) {
                 };
             }));
         });
-        list.add_child(Button::new("BACK", move |s| {
+        list.add_child(DummyView);
+        list.add_child(Button::new("MAIN MENU", move |s| {
             s.set_screen(main_menu_id);
         }));
         s.add_layer(Dialog::around(list).with_name("tables_list"));
@@ -107,7 +108,8 @@ fn create_buttons(
             })
             .with_name("db_helper_button"),
         )
-        .child(Button::new("BACK", move |s| {
+        .child(DummyView)
+        .child(Button::new("CHANGE TABLE", move |s| {
             s.pop_layer();
             draw_db_explorer(s, main_menu_id);
         }))
