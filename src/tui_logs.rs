@@ -155,6 +155,7 @@ async fn race_done_receiver(
     } else {
         let _ = log_sender.send("Failed to lock mutex on done race.".to_owned());
     }
+
 }
 
 fn spawn_data_collection_thread(
