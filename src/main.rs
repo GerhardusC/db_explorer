@@ -3,6 +3,7 @@ mod db_interactions;
 mod main_menu;
 mod siv_utils;
 mod test;
+mod tui_config;
 mod tui_logs;
 mod tui_tables;
 
