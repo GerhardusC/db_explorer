@@ -299,7 +299,7 @@ enum FieldToUpdate {
 }
 
 impl FieldToUpdate {
-    fn get_element_name(&self) -> &str {
+    fn into_element_name(&self) -> &str {
         match self {
             FieldToUpdate::Topic => "current_topic",
             FieldToUpdate::Host => "current_host",
@@ -354,7 +354,7 @@ impl EditFieldDialogCreator {
 
     fn handle_update(&self, s: &mut Cursive, val: Option<&str>) {
         if let Some(res) = s.call_on_name(
-            self.field_to_update.get_element_name(),
+            self.field_to_update.into_element_name(),
             |v: &mut TextView| -> Result<()> {
                 if let Some(val) = val {
                     v.set_content(val);
