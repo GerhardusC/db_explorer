@@ -1,11 +1,4 @@
-mod cli_args;
-mod db_interactions;
-mod main_menu;
-mod siv_utils;
-mod test;
-mod tui_config;
-mod tui_logs;
-mod tui_tables;
+use mqttui::{db_interactions, main_menu, siv_utils};
 
 use anyhow::Result;
 use cursive::{Cursive, CursiveExt};
