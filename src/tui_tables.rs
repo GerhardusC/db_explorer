@@ -93,8 +93,9 @@ fn create_buttons(
     table_name: &str,
     main_menu_id: usize,
 ) -> LinearLayout {
-    let table_name_cp = table_name.to_owned();
-    let table_name_cp_cp = table_name.to_owned();
+    let table_name = Arc::new(table_name.to_owned());
+    let table_name_cp = table_name.clone();
+    let table_name_cp_cp = table_name.clone();
     let val_filter_for_filter = val_filter.clone();
 
     LinearLayout::vertical()

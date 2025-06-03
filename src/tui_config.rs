@@ -46,10 +46,10 @@ impl ConfigRow {
     }
 
     fn create_row(&self) -> LinearLayout {
-        let field1 = self.field_to_update.clone();
-        let field2 = self.field_to_update.clone();
-        let field3 = self.field_to_update.clone();
-        let field4 = self.field_to_update.clone();
+        let field_arc = Arc::new(self.field_to_update.clone());
+        let field1 = field_arc.clone();
+        let field2 = field_arc.clone();
+
         let field_title = self.field_to_update.into_title().to_owned();
 
         let row_value = Arc::new(Mutex::new(self.field_to_update.get_default()));
@@ -105,14 +105,14 @@ impl ConfigRow {
                 );
             }))
             .child(
-                TextView::new(field3.into_title().to_owned())
+                TextView::new(field2.into_title().to_owned())
                     .style(Style::from(Effect::Bold))
                     .style(Style::from(ColorStyle::new(
                         Color::Dark(BaseColor::White),
                         Color::Dark(BaseColor::Green),
                     ))),
             )
-            .child(TextView::new(field4.get_default()).with_name(field2.into_element_name()))
+            .child(TextView::new(field_arc.clone().get_default()).with_name(field_arc.clone().into_element_name()))
         }
 
 }
