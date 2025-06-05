@@ -1,3 +1,8 @@
 /target
 data.db
 dev.db
+test.zip
+SubStore
+sub_store
+temp/
+*.zip
