@@ -91,20 +91,6 @@ WantedBy=multi-user.target
     }
 }
 
-// TODO: Also move this into impl block above.
-fn unzip_file(archive_name: &str, target_dir: &str) -> Result<String> {
-    let _ = fs::create_dir(target_dir);
-
-    let res = std::process::Command::new("unzip")
-        .args(vec!["-o", archive_name, "-d", target_dir])
-        .output()?;
-
-    let stdout = String::from_utf8(res.stdout)?;
-    let stderr = String::from_utf8(res.stderr)?;
-
-    Ok(format!("{}, {}", stdout, stderr))
-}
-
 #[cfg(test)]
 mod test {
     use std::process;
