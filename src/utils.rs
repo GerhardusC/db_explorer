@@ -2,6 +2,7 @@ use std::fs;
 use systemdzbus::{Connection, manager::ManagerProxy};
 
 use anyhow::Result;
+use tokio::task::JoinHandle;
 /**
 Example of git_repo This is how to get latest release:
 "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".
@@ -10,7 +11,7 @@ pub struct SystemDService<'a> {
     github_release_link: &'a str,
     service_name: &'a str,
     program_name: &'a str,
-    args: Vec<&'a str>,
+    startup_args: Vec<&'a str>,
 }
 
 impl<'a> SystemDService<'a> {
@@ -18,17 +19,17 @@ impl<'a> SystemDService<'a> {
         git_repo: &'a str,
         service_name: &'a str,
         program_name: &'a str,
-        args: Vec<&'a str>,
+        startup_args: Vec<&'a str>,
     ) -> Self {
         SystemDService {
             github_release_link: git_repo,
             service_name,
             program_name,
-            args,
+            startup_args,
         }
     }
 
-    fn create_service_file_string(&self) -> String {
+    fn create_unit_file_string(&self) -> String {
         format!(
             "[Unit]
 Description=Part of the data collection package. This is the {} service. 
@@ -45,12 +46,12 @@ WantedBy=multi-user.target
 ",
             self.service_name,
             self.program_name,
-            self.args.join(" ")
+            self.startup_args.join(" ")
         )
     }
 
-    pub fn create_service_file(&self) -> Result<()> {
-        let service_file_string = self.create_service_file_string();
+    pub fn create_unit_file(&self) -> Result<()> {
+        let service_file_string = self.create_unit_file_string();
         fs::write(
             format!("/etc/systemd/system/{}.service", self.service_name),
             service_file_string,
@@ -63,9 +64,30 @@ WantedBy=multi-user.target
         let exists = fs::exists(format!("/usr/local/bin/{}", self.program_name))?;
         Ok(exists)
     }
-    pub fn check_service_file_exists(&self) -> Result<bool> {
+    pub fn check_unit_file_exists(&self) -> Result<bool> {
         let exists = fs::exists(format!("/etc/systemd/system/{}.service", self.service_name))?;
         Ok(exists)
+    }
+
+    pub async fn check_unit_registered(&self) -> Result<bool> {
+        let connection = Connection::system().await?;
+
+        let proxy = ManagerProxy::new(&connection).await?;
+
+        let result = proxy.get_unit(&format!("{}.service", self.service_name)).await;
+        match result {
+            Ok(res) => {
+                println!("Service is running: {:?}", res);
+                Ok(true)
+            },
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("NoSuchUnit") {
+                    return Ok(false)
+                }
+                return Err(e.into());
+            },
+        }
     }
 
     pub fn download_release(&self) -> Result<()> {
@@ -97,6 +119,31 @@ mod test {
 
     use super::*;
 
+    #[test]
+    fn should_check_unit_registered() {
+        let rt = tokio::runtime::Builder::new_current_thread().build()
+            .expect("Should prepare async runtime for test");
+
+        let res: Result<bool> = rt.block_on(async {
+            let service = SystemDService::new(
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip",
+                "substore",
+                "sub_store",
+                vec![],
+            );
+
+            let res = service.check_unit_registered().await?;
+
+            Ok(res)
+        });
+
+        assert!(res.is_ok());
+        assert!(!res.expect("should be able to check unit file"));
+
+    }
+
+    // Ignoring this test for now to ensure we don't keep downloading the file.
+    #[ignore]
     #[test]
     fn should_download_zip_file() {
         let service = SystemDService::new(
@@ -160,7 +207,7 @@ mod test {
     }
 
     #[test]
-    fn should_create_system_file_string() {
+    fn should_create_unit_file_string() {
         let service = SystemDService::new(
             "",
             "service_name",
@@ -180,6 +227,6 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 ";
-        assert_eq!(service.create_service_file_string(), expected_string);
+        assert_eq!(service.create_unit_file_string(), expected_string);
     }
 }
