@@ -1,17 +1,24 @@
-use std::fs;
+use std::{fs, path::Path};
 use systemdzbus::{Connection, manager::ManagerProxy};
 
 use anyhow::Result;
-use tokio::task::JoinHandle;
+
+pub enum ProgramKind {
+    DataCollector,
+    ServerProgram,
+}
+
 /**
 Example of git_repo This is how to get latest release:
 "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".
 Git repo is expected to be a release. */
 pub struct SystemDService<'a> {
     github_release_link: &'a str,
-    service_name: &'a str,
+    service_name: & 'a str,
     program_name: &'a str,
     startup_args: Vec<&'a str>,
+    unzip_location: &'a str,
+    program_kind: ProgramKind,
 }
 
 impl<'a> SystemDService<'a> {
@@ -20,12 +27,16 @@ impl<'a> SystemDService<'a> {
         service_name: &'a str,
         program_name: &'a str,
         startup_args: Vec<&'a str>,
+        unzip_location: Option<&'a str>,
+        program_kind: ProgramKind
     ) -> Self {
-        SystemDService {
+        Self {
             github_release_link: git_repo,
             service_name,
             program_name,
             startup_args,
+            unzip_location: unzip_location.unwrap_or("./temp"),
+            program_kind,
         }
     }
 
@@ -98,12 +109,45 @@ WantedBy=multi-user.target
         Ok(())
     }
 
-    pub fn unzip_file(&self, target_dir: &str) -> Result<String> {
+    fn move_extracted_files(&self) -> Result<()> {
+        match self.program_kind {
+            ProgramKind::DataCollector => {
+                
+                fs::copy(
+                    Path::new(self.unzip_location).join(self.program_name),
+                    &format!("/usr/local/bin/{}", self.program_name)
+                )?;
+
+                fs::remove_file(Path::new(self.unzip_location).join(self.program_name))?;
+
+                if fs::read_dir(self.unzip_location)?.count() == 0 {
+                    fs::remove_dir(self.unzip_location)?;
+                }
+            },
+            ProgramKind::ServerProgram => {
+
+                let dir_name = for file in fs::read_dir(self.unzip_location)? {
+                    let file = file?;
+                    if file.metadata()?.is_dir() {
+                        fs::create_dir_all("/usr/local/home_automation/data");
+                        fs::rename(file.path(), Path::new("/usr/local/home_automation"));
+                        
+                    }; 
+
+                };
+
+            },
+        }
+
+        Ok(())
+    }
+
+    pub fn unzip_file(&self) -> Result<String> {
         let archive_name = format!("./{}.zip", self.service_name);
-        let _ = fs::create_dir(target_dir);
+        let _ = fs::create_dir(self.unzip_location);
 
         let res = std::process::Command::new("unzip")
-            .args(vec!["-o", &archive_name, "-d", target_dir])
+            .args(vec!["-o", &archive_name, "-d", self.unzip_location])
             .output()?;
 
         let stdout = String::from_utf8(res.stdout)?;
@@ -130,6 +174,8 @@ mod test {
                 "substore",
                 "sub_store",
                 vec![],
+                None,
+                ProgramKind::DataCollector,
             );
 
             let res = service.check_unit_registered().await?;
@@ -151,6 +197,8 @@ mod test {
             "substore",
             "sub_store",
             vec![],
+            None,
+            ProgramKind::DataCollector,
         );
 
         let downloaded = service.download_release();
@@ -173,12 +221,13 @@ mod test {
             "substore",
             "sub_store",
             vec![],
+            None,
+            ProgramKind::DataCollector,
         );
 
         // - mock setup -
         let dummy_file_name = "./sub_store";
         let dummy_zipped_name = "./substore.zip";
-        let target_dir = "./temp";
 
         // Create dummy file to zip.
         fs::write(dummy_file_name, "hello")
@@ -194,14 +243,14 @@ mod test {
 
         // PERFORM
         let result = service
-            .unzip_file(target_dir)
+            .unzip_file()
             .expect("Should be able to unzip file");
 
         // ASSERT
         assert!(result.contains("extracting"));
 
         // CLEANUP
-        let _ = fs::remove_dir_all(target_dir);
+        let _ = fs::remove_dir_all(service.unzip_location);
         let _ = fs::remove_file(dummy_zipped_name);
         let _ = fs::remove_file(dummy_file_name);
     }
@@ -212,7 +261,9 @@ mod test {
             "",
             "service_name",
             "program_name",
-            vec!["-a"]
+            vec!["-a"],
+            None,
+            ProgramKind::DataCollector,
         );
         let expected_string = "[Unit]
 Description=Part of the data collection package. This is the service_name service. 
