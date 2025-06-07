@@ -113,6 +113,23 @@ WantedBy=multi-user.target
         Ok(())
     }
 
+    pub async fn enable_unit(&self) -> Result<()> {
+        let connection = Connection::system().await?;
+
+        let proxy = ManagerProxy::new(&connection).await?;
+
+        proxy.enable_unit_files(
+            &[&format!("{}.service", self.service_name)],
+            false,
+            false
+        ).await?;
+
+        Ok(())
+    }
+
+    pub async fn start_unit(&self) -> Result<()> {todo!()}
+
+    /// Returns either Ok("enabled") or Ok("diabled") if the unit exists.
     pub async fn check_unit_status(&self) -> Result<String> {
         let connection = Connection::system().await?;
 
@@ -153,6 +170,26 @@ mod test {
     use std::process;
 
     use super::*;
+
+    #[test]
+    fn should_enable_unit() {
+        let rt = tokio::runtime::Builder::new_current_thread().build()
+            .expect("Should prepare async runtime for test");
+
+        let res: Result<()> = rt.block_on(async {
+            let service = SystemDService::new(
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip",
+                "cron",
+                "sub_store",
+                vec![],
+                Some("./temp"),
+            );
+
+            service.enable_unit().await
+        });
+
+        assert!(res.is_ok(), "Should be able to enable unit file.");
+    }
 
     #[test]
     fn should_check_unit_file_enabled() {
