@@ -1,5 +1,5 @@
-use std::{fs, path::Path};
-use systemdzbus::{manager::{ManagerProxy, ManagerProxyBlocking}, Connection};
+use std::{fs::{self, Permissions}, os::unix::fs::PermissionsExt, path::Path};
+use systemdzbus::{manager::ManagerProxy, Connection};
 
 use anyhow::Result;
 
@@ -37,15 +37,31 @@ impl<'a> SystemDService<'a> {
         }
     }
 
-    fn create_unit_file_string(&self) -> String {
-        format!(
+    fn create_unit_file_string(&self) -> Result<String> {
+        let program_full_path = match Path::new(self.unzip_location)
+            .canonicalize() {
+                Ok(s) => {
+                    s.join(self.program_name).to_string_lossy().to_string()
+                },
+                Err(e) => {
+                    fs::create_dir_all(self.unzip_location)?;
+                    if let Ok(new_path) = Path::new(self.unzip_location)
+                        .canonicalize() {
+                            new_path.join(self.program_name).to_string_lossy().to_string()
+                    } else {
+                        return Err(e.into())
+                    }
+                },
+            };
+
+        Ok(format!(
 "[Unit]
 Description=Part of the data collection package. This is the {} service. 
 After=network.target
 
 [Service]
 User=root
-ExecStart=/usr/local/bin/{} {}
+ExecStart={} {}
 Restart=always
 RestartSec=5
 
@@ -53,22 +69,22 @@ RestartSec=5
 WantedBy=multi-user.target
 ",
             self.service_name,
-            self.program_name,
+            program_full_path,
             self.startup_args.join(" ")
-        )
+        ))
     }
 
-    pub fn create_unit_file(&self) -> Result<()> {
+    fn create_unit_file(&self) -> Result<()> {
         let service_file_string = self.create_unit_file_string();
         fs::write(
             format!("/etc/systemd/system/{}.service", self.service_name),
-            service_file_string,
+            service_file_string?,
         )?;
 
         Ok(())
     }
 
-    pub fn check_program_exists(&self) -> Result<bool> {
+    fn check_program_exists(&self) -> Result<bool> {
         let exists = fs::exists(
             Path::new(self.unzip_location)
                 .join(self.program_name)
@@ -77,12 +93,12 @@ WantedBy=multi-user.target
         Ok(exists)
     }
 
-    pub fn check_unit_file_exists(&self) -> Result<bool> {
+    fn check_unit_file_exists(&self) -> Result<bool> {
         let exists = fs::exists(format!("/etc/systemd/system/{}.service", self.service_name))?;
         Ok(exists)
     }
 
-    pub async fn check_unit_registered(&self) -> Result<bool> {
+    async fn check_unit_registered(&self) -> Result<bool> {
         let connection = Connection::system().await?;
 
         let proxy = ManagerProxy::new(&connection).await?;
@@ -103,7 +119,7 @@ WantedBy=multi-user.target
         }
     }
 
-    pub async fn load_unit_file_from_disk(&self) -> Result<()> {
+    async fn load_unit_file_from_disk(&self) -> Result<()> {
         let connection = Connection::system().await?;
 
         let proxy = ManagerProxy::new(&connection).await?;
@@ -113,7 +129,7 @@ WantedBy=multi-user.target
         Ok(())
     }
 
-    pub async fn enable_unit(&self) -> Result<()> {
+    async fn enable_unit(&self) -> Result<()> {
         let connection = Connection::system().await?;
 
         let proxy = ManagerProxy::new(&connection).await?;
@@ -127,10 +143,18 @@ WantedBy=multi-user.target
         Ok(())
     }
 
-    pub async fn start_unit(&self) -> Result<()> {todo!()}
+    async fn start_unit(&self) -> Result<()> {
+        let connection = Connection::system().await?;
+
+        let proxy = ManagerProxy::new(&connection).await?;
+
+        proxy.start_unit(&format!("{}.service", self.service_name), "fail").await?;
+
+        Ok(())
+    }
 
     /// Returns either Ok("enabled") or Ok("diabled") if the unit exists.
-    pub async fn check_unit_status(&self) -> Result<String> {
+    async fn check_unit_status(&self) -> Result<String> {
         let connection = Connection::system().await?;
 
         let proxy = ManagerProxy::new(&connection).await?;
@@ -140,7 +164,7 @@ WantedBy=multi-user.target
         Ok(status)
     }
 
-    pub fn download_release(&self) -> Result<()> {
+    fn download_release(&self) -> Result<()> {
         let res = reqwest::blocking::get(self.github_release_link)?;
         let body = res.bytes()?;
         fs::write(&format!("./{}.zip", self.service_name), body)?;
@@ -148,7 +172,7 @@ WantedBy=multi-user.target
         Ok(())
     }
 
-    pub fn unzip_file(&self) -> Result<String> {
+    fn unzip_file(&self) -> Result<String> {
         let archive_name = format!("./{}.zip", self.service_name);
         let _ = fs::create_dir(self.unzip_location);
 
@@ -161,7 +185,29 @@ WantedBy=multi-user.target
         let stdout = String::from_utf8(res.stdout)?;
         let stderr = String::from_utf8(res.stderr)?;
 
+        fs::set_permissions(Path::new(self.unzip_location)
+            .join(self.program_name), Permissions::from_mode(0o775))?;
+
         Ok(format!("{}, {}", stdout, stderr))
+    }
+
+    pub async fn install_unit(&self) -> Result<()> {
+        if !self.check_program_exists()? {
+            self.download_release()?;
+            self.unzip_file()?;
+        }
+
+        if !self.check_unit_file_exists()? {
+            // This creates both the string and writes it to drive.
+            self.create_unit_file()?;
+            self.load_unit_file_from_disk().await?;
+        }
+
+        if self.check_unit_status().await? == "disabled" {
+            self.enable_unit().await?;
+        }
+
+        self.start_unit().await
     }
 }
 
@@ -172,11 +218,61 @@ mod test {
     use super::*;
 
     #[test]
-    fn should_enable_unit() {
-        let rt = tokio::runtime::Builder::new_current_thread().build()
-            .expect("Should prepare async runtime for test");
+    fn should_fully_create_and_enable_unit() {
+        fs::create_dir_all("/usr/local/home_automation/data").unwrap();
+        let res: Result<()> = smol::block_on(async {
+            let service = SystemDService::new(
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip",
+                "substore",
+                "sub_store",
+                vec!["--db-path", "/usr/local/home_automation/data/data.db"],
+                Some("/usr/local/home_automation"),
+            );
 
-        let res: Result<()> = rt.block_on(async {
+            let res = service.install_unit().await;
+
+            assert!(res.is_ok(), "Should be able to create unit from start to finish.");
+
+            // Cleanup
+            // Not cleaning up download because we can skip downloading if we run the tests again.
+            let connection = Connection::system().await?;
+            let proxy = ManagerProxy::new(&connection).await?;
+            proxy.stop_unit(&format!("{}.service", service.service_name), "fail").await?;
+            proxy.disable_unit_files(&[&format!("{}.service", service.service_name)], false).await?;
+
+            fs::remove_file(&format!("/etc/systemd/system/{}.service", service.service_name))?;
+            proxy.reload().await?;
+
+            Ok(())
+        });
+
+        if let Err(e) = &res {
+            assert_eq!(e.to_string(), "".to_owned());
+        }
+    }
+
+    #[test]
+    fn should_start_unit() {
+        let res: Result<()> = smol::block_on(async {
+            let service = SystemDService::new(
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip",
+                "cron",
+                "sub_store",
+                vec![],
+                Some("./temp"),
+            );
+
+            service.start_unit().await?;
+
+            Ok(())
+        });
+
+        assert!(res.is_ok(), "Should be able to start unit file.");
+
+    }
+    #[test]
+    fn should_enable_unit() {
+        let res: Result<()> = smol::block_on(async {
             let service = SystemDService::new(
                 "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip",
                 "cron",
@@ -193,10 +289,8 @@ mod test {
 
     #[test]
     fn should_check_unit_file_enabled() {
-        let rt = tokio::runtime::Builder::new_current_thread().build()
-            .expect("Should prepare async runtime for test");
 
-        let res: Result<String> = rt.block_on(async {
+        let res: Result<String> = smol::block_on(async {
             let service = SystemDService::new(
                 "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip",
                 "cron",
@@ -220,13 +314,10 @@ mod test {
 
     #[test]
     fn should_check_unit_registered() {
-        let rt = tokio::runtime::Builder::new_current_thread().build()
-            .expect("Should prepare async runtime for test");
-
-        let res: Result<bool> = rt.block_on(async {
+        let res: Result<bool> = smol::block_on(async {
             let service = SystemDService::new(
                 "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip",
-                "substore",
+                "cron",
                 "sub_store",
                 vec![],
                 Some("./temp"),
@@ -238,7 +329,7 @@ mod test {
         });
 
         assert!(res.is_ok());
-        assert!(!res.expect("should be able to check unit file"));
+        assert!(res.expect("should be able to check unit file"));
 
     }
 
@@ -327,19 +418,22 @@ mod test {
             vec!["-a"],
             Some("./temp"),
         );
-        let expected_string = "[Unit]
+        let expected_string = format!("[Unit]
 Description=Part of the data collection package. This is the service_name service. 
 After=network.target
 
 [Service]
 User=root
-ExecStart=/usr/local/bin/program_name -a
+ExecStart={}/program_name -a
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-";
-        assert_eq!(service.create_unit_file_string(), expected_string);
+", Path::new("./").canonicalize().unwrap().join("temp").to_string_lossy().to_string());
+        assert_eq!(service.create_unit_file_string().unwrap_or_else(|e| {
+            println!("{:?}", e);
+            "".to_owned()
+        }), expected_string);
     }
 }
