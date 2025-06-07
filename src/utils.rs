@@ -1,5 +1,5 @@
 use std::{fs, path::Path};
-use systemdzbus::{Connection, manager::ManagerProxy};
+use systemdzbus::{manager::{ManagerProxy, ManagerProxyBlocking}, Connection};
 
 use anyhow::Result;
 
@@ -18,7 +18,6 @@ pub struct SystemDService<'a> {
     program_name: &'a str,
     startup_args: Vec<&'a str>,
     unzip_location: &'a str,
-    program_kind: ProgramKind,
 }
 
 impl<'a> SystemDService<'a> {
@@ -28,21 +27,19 @@ impl<'a> SystemDService<'a> {
         program_name: &'a str,
         startup_args: Vec<&'a str>,
         unzip_location: Option<&'a str>,
-        program_kind: ProgramKind
     ) -> Self {
         Self {
             github_release_link: git_repo,
             service_name,
             program_name,
             startup_args,
-            unzip_location: unzip_location.unwrap_or("./temp"),
-            program_kind,
+            unzip_location: unzip_location.unwrap_or("/usr/local/home_automation"),
         }
     }
 
     fn create_unit_file_string(&self) -> String {
         format!(
-            "[Unit]
+"[Unit]
 Description=Part of the data collection package. This is the {} service. 
 After=network.target
 
@@ -72,9 +69,14 @@ WantedBy=multi-user.target
     }
 
     pub fn check_program_exists(&self) -> Result<bool> {
-        let exists = fs::exists(format!("/usr/local/bin/{}", self.program_name))?;
+        let exists = fs::exists(
+            Path::new(self.unzip_location)
+                .join(self.program_name)
+        )?;
+
         Ok(exists)
     }
+
     pub fn check_unit_file_exists(&self) -> Result<bool> {
         let exists = fs::exists(format!("/etc/systemd/system/{}.service", self.service_name))?;
         Ok(exists)
@@ -101,43 +103,30 @@ WantedBy=multi-user.target
         }
     }
 
-    pub fn download_release(&self) -> Result<()> {
-        let res = reqwest::blocking::get(self.github_release_link)?;
-        let body = res.bytes()?;
-        fs::write(&format!("./{}.zip", self.service_name), body)?;
+    pub async fn load_unit_file_from_disk(&self) -> Result<()> {
+        let connection = Connection::system().await?;
+
+        let proxy = ManagerProxy::new(&connection).await?;
+
+        proxy.load_unit(&format!("{}.service", self.service_name)).await?;
 
         Ok(())
     }
 
-    fn move_extracted_files(&self) -> Result<()> {
-        match self.program_kind {
-            ProgramKind::DataCollector => {
-                
-                fs::copy(
-                    Path::new(self.unzip_location).join(self.program_name),
-                    &format!("/usr/local/bin/{}", self.program_name)
-                )?;
+    pub async fn check_unit_status(&self) -> Result<String> {
+        let connection = Connection::system().await?;
 
-                fs::remove_file(Path::new(self.unzip_location).join(self.program_name))?;
+        let proxy = ManagerProxy::new(&connection).await?;
 
-                if fs::read_dir(self.unzip_location)?.count() == 0 {
-                    fs::remove_dir(self.unzip_location)?;
-                }
-            },
-            ProgramKind::ServerProgram => {
+        let status = proxy.get_unit_file_state(&format!("{}.service", self.service_name)).await?;
 
-                let dir_name = for file in fs::read_dir(self.unzip_location)? {
-                    let file = file?;
-                    if file.metadata()?.is_dir() {
-                        fs::create_dir_all("/usr/local/home_automation/data");
-                        fs::rename(file.path(), Path::new("/usr/local/home_automation"));
-                        
-                    }; 
+        Ok(status)
+    }
 
-                };
-
-            },
-        }
+    pub fn download_release(&self) -> Result<()> {
+        let res = reqwest::blocking::get(self.github_release_link)?;
+        let body = res.bytes()?;
+        fs::write(&format!("./{}.zip", self.service_name), body)?;
 
         Ok(())
     }
@@ -149,6 +138,8 @@ WantedBy=multi-user.target
         let res = std::process::Command::new("unzip")
             .args(vec!["-o", &archive_name, "-d", self.unzip_location])
             .output()?;
+
+        fs::remove_file(&archive_name)?;
 
         let stdout = String::from_utf8(res.stdout)?;
         let stderr = String::from_utf8(res.stderr)?;
@@ -164,6 +155,33 @@ mod test {
     use super::*;
 
     #[test]
+    fn should_check_unit_file_enabled() {
+        let rt = tokio::runtime::Builder::new_current_thread().build()
+            .expect("Should prepare async runtime for test");
+
+        let res: Result<String> = rt.block_on(async {
+            let service = SystemDService::new(
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip",
+                "cron",
+                "sub_store",
+                vec![],
+                Some("./temp"),
+            );
+
+            let status = service.check_unit_status().await?;
+            
+            Ok(status)
+        });
+
+        if let Err(e) = &res {
+            assert_eq!(e.to_string(), "".to_owned());
+        }
+
+        assert!(res.is_ok(), "Should pass if unit is enabled.");
+        assert_eq!(res.unwrap(), "enabled");
+    }
+
+    #[test]
     fn should_check_unit_registered() {
         let rt = tokio::runtime::Builder::new_current_thread().build()
             .expect("Should prepare async runtime for test");
@@ -174,8 +192,7 @@ mod test {
                 "substore",
                 "sub_store",
                 vec![],
-                None,
-                ProgramKind::DataCollector,
+                Some("./temp"),
             );
 
             let res = service.check_unit_registered().await?;
@@ -197,8 +214,7 @@ mod test {
             "substore",
             "sub_store",
             vec![],
-            None,
-            ProgramKind::DataCollector,
+            Some("./temp"),
         );
 
         let downloaded = service.download_release();
@@ -221,8 +237,7 @@ mod test {
             "substore",
             "sub_store",
             vec![],
-            None,
-            ProgramKind::DataCollector,
+            Some("./temp"),
         );
 
         // - mock setup -
@@ -248,10 +263,21 @@ mod test {
 
         // ASSERT
         assert!(result.contains("extracting"));
+        assert!(
+            !Path::new(dummy_zipped_name)
+                .try_exists()
+                .expect("Should be able to call exists on file"),
+            "Failed to extract file."
+        );
+        assert!(
+            Path::new(dummy_file_name)
+                .try_exists()
+                .expect("Should be able to call exists on file"),
+            "Extracted file does not exist."
+        );
 
         // CLEANUP
         let _ = fs::remove_dir_all(service.unzip_location);
-        let _ = fs::remove_file(dummy_zipped_name);
         let _ = fs::remove_file(dummy_file_name);
     }
 
@@ -262,8 +288,7 @@ mod test {
             "service_name",
             "program_name",
             vec!["-a"],
-            None,
-            ProgramKind::DataCollector,
+            Some("./temp"),
         );
         let expected_string = "[Unit]
 Description=Part of the data collection package. This is the service_name service. 
