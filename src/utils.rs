@@ -37,6 +37,35 @@ impl<'a> SystemDService<'a> {
         }
     }
 
+    pub async fn install_unit(&self) -> Result<()> {
+        if !self.check_program_exists()? {
+            self.download_release()?;
+            self.unzip_file()?;
+        }
+
+        if !self.check_unit_file_exists()? {
+            // This creates both the string and writes it to drive.
+            self.create_unit_file()?;
+            self.load_unit_file_from_disk().await?;
+        }
+
+        if self.check_unit_status().await? == "disabled" {
+            self.enable_unit().await?;
+        }
+
+        self.start_unit().await
+    }
+
+    fn create_unit_file(&self) -> Result<()> {
+        let service_file_string = self.create_unit_file_string();
+        fs::write(
+            format!("/etc/systemd/system/{}.service", self.service_name),
+            service_file_string?,
+        )?;
+
+        Ok(())
+    }
+
     fn create_unit_file_string(&self) -> Result<String> {
         let program_full_path = match Path::new(self.unzip_location)
             .canonicalize() {
@@ -74,16 +103,6 @@ WantedBy=multi-user.target
         ))
     }
 
-    fn create_unit_file(&self) -> Result<()> {
-        let service_file_string = self.create_unit_file_string();
-        fs::write(
-            format!("/etc/systemd/system/{}.service", self.service_name),
-            service_file_string?,
-        )?;
-
-        Ok(())
-    }
-
     fn check_program_exists(&self) -> Result<bool> {
         let exists = fs::exists(
             Path::new(self.unzip_location)
@@ -98,7 +117,35 @@ WantedBy=multi-user.target
         Ok(exists)
     }
 
-    async fn check_unit_registered(&self) -> Result<bool> {
+
+    fn download_release(&self) -> Result<()> {
+        let res = reqwest::blocking::get(self.github_release_link)?;
+        let body = res.bytes()?;
+        fs::write(&format!("./{}.zip", self.service_name), body)?;
+
+        Ok(())
+    }
+
+    fn unzip_file(&self) -> Result<String> {
+        let archive_name = format!("./{}.zip", self.service_name);
+        let _ = fs::create_dir(self.unzip_location);
+
+        let res = std::process::Command::new("unzip")
+            .args(vec!["-o", &archive_name, "-d", self.unzip_location])
+            .output()?;
+
+        fs::remove_file(&archive_name)?;
+
+        let stdout = String::from_utf8(res.stdout)?;
+        let stderr = String::from_utf8(res.stderr)?;
+
+        fs::set_permissions(Path::new(self.unzip_location)
+            .join(self.program_name), Permissions::from_mode(0o775))?;
+
+        Ok(format!("{}, {}", stdout, stderr))
+    }
+
+    async fn _check_unit_registered(&self) -> Result<bool> {
         let connection = Connection::system().await?;
 
         let proxy = ManagerProxy::new(&connection).await?;
@@ -117,6 +164,17 @@ WantedBy=multi-user.target
                 return Err(e.into());
             },
         }
+    }
+
+    /// Returns either Ok("enabled") or Ok("diabled") if the unit exists.
+    async fn check_unit_status(&self) -> Result<String> {
+        let connection = Connection::system().await?;
+
+        let proxy = ManagerProxy::new(&connection).await?;
+
+        let status = proxy.get_unit_file_state(&format!("{}.service", self.service_name)).await?;
+
+        Ok(status)
     }
 
     async fn load_unit_file_from_disk(&self) -> Result<()> {
@@ -151,63 +209,6 @@ WantedBy=multi-user.target
         proxy.start_unit(&format!("{}.service", self.service_name), "fail").await?;
 
         Ok(())
-    }
-
-    /// Returns either Ok("enabled") or Ok("diabled") if the unit exists.
-    async fn check_unit_status(&self) -> Result<String> {
-        let connection = Connection::system().await?;
-
-        let proxy = ManagerProxy::new(&connection).await?;
-
-        let status = proxy.get_unit_file_state(&format!("{}.service", self.service_name)).await?;
-
-        Ok(status)
-    }
-
-    fn download_release(&self) -> Result<()> {
-        let res = reqwest::blocking::get(self.github_release_link)?;
-        let body = res.bytes()?;
-        fs::write(&format!("./{}.zip", self.service_name), body)?;
-
-        Ok(())
-    }
-
-    fn unzip_file(&self) -> Result<String> {
-        let archive_name = format!("./{}.zip", self.service_name);
-        let _ = fs::create_dir(self.unzip_location);
-
-        let res = std::process::Command::new("unzip")
-            .args(vec!["-o", &archive_name, "-d", self.unzip_location])
-            .output()?;
-
-        fs::remove_file(&archive_name)?;
-
-        let stdout = String::from_utf8(res.stdout)?;
-        let stderr = String::from_utf8(res.stderr)?;
-
-        fs::set_permissions(Path::new(self.unzip_location)
-            .join(self.program_name), Permissions::from_mode(0o775))?;
-
-        Ok(format!("{}, {}", stdout, stderr))
-    }
-
-    pub async fn install_unit(&self) -> Result<()> {
-        if !self.check_program_exists()? {
-            self.download_release()?;
-            self.unzip_file()?;
-        }
-
-        if !self.check_unit_file_exists()? {
-            // This creates both the string and writes it to drive.
-            self.create_unit_file()?;
-            self.load_unit_file_from_disk().await?;
-        }
-
-        if self.check_unit_status().await? == "disabled" {
-            self.enable_unit().await?;
-        }
-
-        self.start_unit().await
     }
 }
 
@@ -323,7 +324,7 @@ mod test {
                 Some("./temp"),
             );
 
-            let res = service.check_unit_registered().await?;
+            let res = service._check_unit_registered().await?;
 
             Ok(res)
         });
