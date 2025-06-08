@@ -1,25 +1,24 @@
-use std::sync::{Arc, Mutex};
+use std::{path::Path, sync::{Arc, Mutex}};
 
 use cursive::{
-    Cursive,
-    theme::{BaseColor, Color, ColorStyle, Effect, Style},
-    view::Nameable,
-    views::{Button, Dialog, EditView, LinearLayout, TextView},
+    theme::{BaseColor, Color, ColorStyle, Effect, Style}, view::Nameable, views::{Button, Dialog, EditView, LinearLayout, SelectView, TextView}, Cursive
 };
 
-use crate::cli_args::ARGS;
+use crate::{cli_args::ARGS, utils::SystemDService};
 
 #[derive(Clone)]
 enum FieldToUpdate {
     DBPath,
     BrokerIP,
+    InstallLocation,
 }
 
 impl FieldToUpdate {
     fn into_title(&self) -> &str {
         match self {
-            FieldToUpdate::DBPath => "DB Path:   ",
-            FieldToUpdate::BrokerIP => "Broker IP: ",
+            FieldToUpdate::DBPath =>            "DB Path:          ",
+            FieldToUpdate::BrokerIP =>          "Broker IP:        ",
+            FieldToUpdate::InstallLocation =>   "Install Location: ", 
         }
     }
 
@@ -27,13 +26,23 @@ impl FieldToUpdate {
         match self {
             FieldToUpdate::DBPath => "db_path_field",
             FieldToUpdate::BrokerIP => "broker_ip_field",
+            FieldToUpdate::InstallLocation =>   "install_location_field", 
         }
     }
 
     fn get_default(&self) -> String {
         match self {
-            FieldToUpdate::DBPath => (&ARGS.db_path).to_owned(),
+            FieldToUpdate::DBPath => {
+                let full_path = Path::new(&ARGS.db_path).canonicalize();
+
+                if let Ok(full_path) = full_path {
+                    full_path.to_string_lossy().to_string()
+                } else {
+                    (&ARGS.db_path).to_owned()
+                }
+            } 
             FieldToUpdate::BrokerIP => (&ARGS.broker_ip).to_owned(),
+            FieldToUpdate::InstallLocation => "/usr/local/home_automation".to_owned(),
         }
     }
 }
@@ -125,37 +134,84 @@ impl ConfigRow {
     }
 }
 
+struct ServiceDisplayRow {
+    github_repo: String,
+    service_name: String,
+    program_name: String,
+    startup_args: Vec<String>,
+    install_location: String,
+}
+
+impl ServiceDisplayRow {
+    fn new(
+        github_repo: String,
+        service_name: String,
+        program_name: String,
+        startup_args: Vec<String>,
+        install_location: String,
+    ) -> Self {
+        Self {
+            github_repo,
+            service_name,
+            program_name,
+            startup_args,
+            install_location,
+        }
+    }
+
+    fn create_row(self) -> SelectView<ServiceDisplayRow> {
+        let service_name = &self.service_name.to_owned();
+        SelectView::new()
+            .item(service_name, self)
+
+    }
+}
+
 pub fn draw_config(s: &mut Cursive, main_menu_id: usize) {
     let config_row = ConfigRow::new(FieldToUpdate::DBPath).create_row();
     let config_row2 = ConfigRow::new(FieldToUpdate::BrokerIP).create_row();
+    let config_row3 = ConfigRow::new(FieldToUpdate::InstallLocation).create_row();
+
+    let service_row = ServiceDisplayRow::new(
+        "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
+        "substore".to_owned(),
+        "sub_store".to_owned(),
+        vec![
+            "--db-path".to_owned(), FieldToUpdate::DBPath.get_default(),
+            "--broker-ip".to_owned(), FieldToUpdate::BrokerIP.get_default(),
+        ],
+        "/usr/local/home_automation".to_owned(),
+    ).create_row();
 
     s.add_layer(
         Dialog::around(
-            LinearLayout::horizontal()
+            LinearLayout::vertical()
                 .child(
                     Dialog::around(
                         LinearLayout::vertical()
                             .child(Dialog::around(
                                 LinearLayout::vertical()
                                     .child(config_row)
-                                    .child(config_row2),
+                                    .child(config_row2)
+                                    .child(config_row3),
                             ))
-                            .child(Button::new("MAIN MENU", move |s| {
-                                s.set_screen(main_menu_id);
-                            })),
                     )
                     .title("Configure"),
                 )
                 .child(
                     Dialog::around(
                         LinearLayout::vertical()
-                            .child(Dialog::around(TextView::new("TODO")).title("Install Services"))
+                            .child(Dialog::around(service_row)
+                                .title("Install Services"))
                             .child(
                                 Dialog::around(TextView::new("TODO")).title("Check Dependencies"),
                             ),
                     )
                     .title("Services"),
-                ),
+                )
+                .child(Button::new("MAIN MENU", move |s| {
+                    s.set_screen(main_menu_id);
+                })),
         )
         .title("CONFIGURATION"),
     );

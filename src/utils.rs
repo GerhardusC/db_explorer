@@ -56,6 +56,9 @@ impl<'a> SystemDService<'a> {
         self.start_unit().await
     }
 
+    // TODO: Create this function to clean up.
+    pub async fn uninstall_unit(&self) -> Result<()> {todo!()}
+
     fn create_unit_file(&self) -> Result<()> {
         let service_file_string = self.create_unit_file_string();
         fs::write(
