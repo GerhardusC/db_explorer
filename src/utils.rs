@@ -77,6 +77,23 @@ impl SystemDService {
         Ok(())
     }
 
+    pub async fn remove_installed_files(&self) -> Result<()> {
+        let install_loc = Path::new(&self.unzip_location).join(&self.program_name);
+        fs::remove_file(install_loc)?;
+        
+        match self.service_name.as_ref() {
+            "substore" => {
+                let files = fs::read_dir(&self.unzip_location)?;
+                if files.count() == 0 {
+                    fs::remove_dir(&self.unzip_location)?;
+                }
+            },
+            _ => {},
+        }
+
+        Ok(())
+    }
+
     fn create_unit_file(&self) -> Result<()> {
         let service_file_string = self.create_unit_file_string();
         fs::write(

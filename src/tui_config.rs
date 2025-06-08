@@ -183,6 +183,7 @@ impl ServiceDisplayRow for SystemDService {
 
         let service_state_arc = service_state.clone();
         let service_state_arc2 = service_state.clone();
+        let service_state_arc3 = service_state.clone();
 
         let element_name_arc2 = element_name_arc.clone();
         let element_name_arc3 = element_name_arc.clone();
@@ -279,8 +280,17 @@ impl ServiceDisplayRow for SystemDService {
                                         s.add_layer(Dialog::info(&format!("{:?}", e)));
                                     }
                                 }))
-                                .child(Button::new("Remove", |s| {
+                                .child(Button::new("Remove", move |s| {
+                                    let res: Result<()> = smol::block_on(async {
+                                        if let Ok(state) = service_state_arc3.lock() {
+                                            (*state).remove_installed_files().await?;
+                                        };
+                                        Ok(())
+                                    });
 
+                                    if let Err(e) = res {
+                                        s.add_layer(Dialog::info(&format!("{:?}", e)));
+                                    }
                                 }))
                         )
                         .child(DummyView)
