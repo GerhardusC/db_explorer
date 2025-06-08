@@ -25,9 +25,9 @@ enum FieldToUpdate {
 impl FieldToUpdate {
     fn into_title(&self) -> &str {
         match self {
-            FieldToUpdate::DBPath =>            "DB Path:          ",
-            FieldToUpdate::BrokerIP =>          "Broker IP:        ",
-            FieldToUpdate::InstallLocation =>   "Install Location: ",
+            FieldToUpdate::DBPath => "DB Path:          ",
+            FieldToUpdate::BrokerIP => "Broker IP:        ",
+            FieldToUpdate::InstallLocation => "Install Location: ",
         }
     }
 
@@ -53,6 +53,14 @@ impl FieldToUpdate {
             FieldToUpdate::BrokerIP => (&ARGS.broker_ip).to_owned(),
             FieldToUpdate::InstallLocation => "/usr/local/home_automation".to_owned(),
         }
+    }
+
+    fn get_current_configured_value(&self, s: &mut Cursive) -> String {
+        s.call_on_name(&self.into_element_name(), |v: &mut TextView| {
+            let content = v.get_content();
+            content.source().to_owned()
+        })
+        .unwrap_or(self.get_default())
     }
 }
 
@@ -176,77 +184,40 @@ fn install_button_handler(
 
     // Collect all state from config boxes.
     // ----------------------------------------
-    // DB PATH:
-    let db_path = s
-        .call_on_name(
-            FieldToUpdate::DBPath.into_element_name(),
-            |v: &mut TextView| {
-                let content = v.get_content();
-                content.source().to_owned()
-            },
-        )
-        .unwrap_or(FieldToUpdate::DBPath.get_default());
-
-    // BROKER IP:
-    let broker_ip = s
-        .call_on_name(
-            FieldToUpdate::BrokerIP.into_element_name(),
-            |v: &mut TextView| {
-                let content = v.get_content();
-                content.source().to_owned()
-            },
-        )
-        .unwrap_or(FieldToUpdate::BrokerIP.get_default());
-
-    // INSTALL PATH:
-    let install_location = s
-        .call_on_name(
-            FieldToUpdate::InstallLocation.into_element_name(),
-            |v: &mut TextView| {
-                let content = v.get_content();
-                content.source().to_owned()
-            },
-        )
-        .unwrap_or(FieldToUpdate::InstallLocation.get_default());
+    let db_path = FieldToUpdate::DBPath.get_current_configured_value(s);
+    let broker_ip = FieldToUpdate::BrokerIP.get_current_configured_value(s);
+    let install_location = FieldToUpdate::InstallLocation.get_current_configured_value(s);
     // ----------------------------------------
 
     let res: Result<()> = smol::block_on(async {
         match service_state.lock() {
             Ok(mut state) => {
                 let service_name = (*state).service_name.to_owned();
-                (*state).set_args(
-                    match service_name.as_ref() {
-                        "substore" => {
-                            vec![
-                                "--db-path".to_owned(),
-                                db_path,
-                                "--broker-ip".to_owned(),
-                                broker_ip,
-                            ]
-                        }
-                        _ => {
-                            vec![]
-                        }
-                    },
-                );
+                (*state).set_args(match service_name.as_ref() {
+                    "substore" => {
+                        vec![
+                            "--db-path".to_owned(),
+                            db_path,
+                            "--broker-ip".to_owned(),
+                            broker_ip,
+                        ]
+                    }
+                    _ => {
+                        vec![]
+                    }
+                });
                 (*state).set_install_location(&install_location);
                 (*state).install_unit().await?;
-                let new_unit_status =
-                    (*state).check_unit_status().await?;
+                let new_unit_status = (*state).check_unit_status().await?;
 
-                s.call_on_name(
-                    &element_name.to_string(),
-                    |v: &mut TextView| {
-                        v.set_content(new_unit_status.to_string())
-                    },
-                );
+                s.call_on_name(&element_name.to_string(), |v: &mut TextView| {
+                    v.set_content(new_unit_status.to_string())
+                });
             }
             Err(_) => {
-                return Err(Error::new(
-                    std::io::ErrorKind::Other,
-                    "Poisoned mutex in install",
-                )
-                .into());
+                return Err(
+                    Error::new(std::io::ErrorKind::Other, "Poisoned mutex in install").into(),
+                );
             }
         };
         Ok(())
@@ -257,7 +228,6 @@ fn install_button_handler(
     } else {
         s.add_layer(Dialog::info("Installed"));
     }
-
 }
 
 fn simple_button_handler(
@@ -356,7 +326,11 @@ impl ServiceDisplayRow for SystemDService {
                         LinearLayout::vertical()
                             // Buttons:
                             .child(Button::new("Install", move |s| {
-                                install_button_handler(s, service_state_arc.clone(), element_name_arc.clone());
+                                install_button_handler(
+                                    s,
+                                    service_state_arc.clone(),
+                                    element_name_arc.clone(),
+                                );
                             }))
                             .child(Button::new("Uninstall", move |s| {
                                 simple_button_handler(
