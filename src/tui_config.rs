@@ -3,7 +3,7 @@ use std::{io::Error, path::Path, sync::{Arc, Mutex}};
 use anyhow::Result;
 
 use cursive::{
-    theme::{BaseColor, Color, ColorStyle, Effect, Style}, view::Nameable, views::{Button, Dialog, DummyView, EditView, LinearLayout, ListView, SelectView, TextView}, Cursive
+    theme::{BaseColor, Color, ColorStyle, Effect, Style}, view::Nameable, views::{Button, Dialog, DummyView, EditView, LinearLayout, ListView, TextView}, Cursive
 };
 
 use crate::{cli_args::ARGS, utils::SystemDService};
@@ -138,15 +138,19 @@ impl ConfigRow {
 
 trait ServiceDisplayRow {
     fn create_row(self) -> LinearLayout;
+    fn get_element_name(&self) -> String;
 }
 
 impl ServiceDisplayRow for SystemDService {
+    fn get_element_name(&self) -> String {
+        format!("{}-status-text", self.service_name)
+    }
     fn create_row(self) -> LinearLayout {
         // TODO: Listen for service state update.
+        let element_name = Arc::new(self.get_element_name());
+        let element_name_arc = element_name.clone();
         let service_state = Arc::new(Mutex::new(self));
         let service_state_arc = service_state.clone();
-        let service_status = Arc::new(Mutex::new("unknown".to_owned()));
-        let service_status_arc = service_status.clone();
 
         let service_name = match service_state_arc.lock() {
             Ok(state) => {
@@ -159,24 +163,17 @@ impl ServiceDisplayRow for SystemDService {
 
         let service_state_arc2 = service_state.clone();
         let initial_service_status = smol::block_on(async {
-            match service_status_arc.lock() {
-                Ok(state) => {
-                    if let Ok(state) = service_state_arc2.lock() {
-                        match (*state).check_unit_status().await {
-                            Ok(res) => {
-                                res
-                            },
-                            Err(e) => {
-                                format!("{:?}", e)
-                            },
-                        }
-                    } else {
-                        (*state).to_string()
-                    }
-                },
-                Err(_e) => {
-                    "MUTEX_LOCK_FAIL".to_owned()
-                },
+            if let Ok(state) = service_state_arc2.lock() {
+                match (*state).check_unit_status().await {
+                    Ok(res) => {
+                        res
+                    },
+                    Err(e) => {
+                        format!("{:?}", e)
+                    },
+                }
+            } else {
+                "MUTEX_LOCK_FAIL".to_owned()
             }
         });
 
@@ -185,7 +182,10 @@ impl ServiceDisplayRow for SystemDService {
         let service_name_ref2 = service_name_ref.clone();
 
         let service_state_arc = service_state.clone();
-        let service_status_arc = service_status.clone();
+        let service_state_arc2 = service_state.clone();
+
+        let element_name_arc2 = element_name_arc.clone();
+        let element_name_arc3 = element_name_arc.clone();
         LinearLayout::horizontal()
             .child(
                 Dialog::around(
@@ -197,7 +197,7 @@ impl ServiceDisplayRow for SystemDService {
                                 // Buttons:
                                 .child(Button::new("Install", move |s| {
                                     let service_state_arc = service_state_arc.clone();
-                                    let service_status_arc = service_status_arc.clone();
+                                    let element_name_arc = element_name_arc.clone();
 
                                     // Collect all state from config boxes.
                                     // ----------------------------------------
@@ -239,15 +239,10 @@ impl ServiceDisplayRow for SystemDService {
                                                 (*state).set_install_location(&install_location);
                                                 (*state).install_unit().await?;
                                                 let new_unit_status = (*state).check_unit_status().await?;
-                                                if let Ok(mut old_status) = service_status_arc.lock() {
-                                                    let new_unit_status = Arc::new(new_unit_status);
-                                                    *old_status = new_unit_status.to_string();
 
-
-                                                    s.call_on_name(&format!("{}-status-text", service_name_ref1), | v: &mut TextView | {
-                                                        v.set_content(new_unit_status.to_string())
-                                                    });
-                                                }
+                                                s.call_on_name(&element_name_arc.to_string(), | v: &mut TextView | {
+                                                    v.set_content(new_unit_status.to_string())
+                                                });
                                             },
                                             Err(_) => {
                                                 return Err(
@@ -258,12 +253,35 @@ impl ServiceDisplayRow for SystemDService {
                                         };
                                         Ok(())
                                     });
+
                                     if let Err(e) = res {
                                         s.add_layer(Dialog::info(&format!("{:?}", e)));
                                     }
                                 })
                                 )
-                                .child(Button::new("Uninstall", |s| {}))
+                                .child(Button::new("Uninstall", move |s| {
+                                    let element_name_arc3 = element_name_arc3.clone();
+                                    let res: Result<()> = smol::block_on(async {
+                                        if let Ok(state) = service_state_arc2.lock() {
+                                            (*state).uninstall_unit().await?;
+                                            let new_unit_status = (*state).check_unit_status().await
+                                                .unwrap_or_else(|e| {
+                                                    format!("{:?}", e)
+                                            });
+                                            s.call_on_name(&element_name_arc3.to_string(), | v: &mut TextView | {
+                                                v.set_content(new_unit_status.to_string());
+                                            });
+                                        };
+                                        Ok(())
+                                    });
+
+                                    if let Err(e) = res {
+                                        s.add_layer(Dialog::info(&format!("{:?}", e)));
+                                    }
+                                }))
+                                .child(Button::new("Remove", |s| {
+
+                                }))
                         )
                         .child(DummyView)
                         // Buton Row
@@ -287,7 +305,7 @@ impl ServiceDisplayRow for SystemDService {
                     LinearLayout::horizontal()
                         .child(TextView::new("STATUS: "))
                         .child(TextView::new(&initial_service_status)
-                            .with_name(&format!("{}-status-text", &service_name_ref2)))
+                            .with_name(element_name_arc2.to_string()))
                     )
             ))
     }

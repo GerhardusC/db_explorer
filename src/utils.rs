@@ -65,8 +65,17 @@ impl SystemDService {
         self.start_unit().await
     }
 
-    // TODO: Create this function to clean up.
-    pub async fn uninstall_unit(&self) -> Result<()> {todo!()}
+    pub async fn uninstall_unit(&self) -> Result<()> {
+        let connection = Connection::system().await?;
+        let proxy = ManagerProxy::new(&connection).await?;
+        proxy.stop_unit(&format!("{}.service", self.service_name), "fail").await?;
+        proxy.disable_unit_files(&[&format!("{}.service", self.service_name)], false).await?;
+
+        fs::remove_file(&format!("/etc/systemd/system/{}.service", self.service_name))?;
+        proxy.reload().await?;
+        // TODO: Also remove install files.
+        Ok(())
+    }
 
     fn create_unit_file(&self) -> Result<()> {
         let service_file_string = self.create_unit_file_string();
