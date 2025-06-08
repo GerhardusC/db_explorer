@@ -1,7 +1,9 @@
-use std::{path::Path, sync::{Arc, Mutex}};
+use std::{io::Error, path::Path, sync::{Arc, Mutex}};
+
+use anyhow::Result;
 
 use cursive::{
-    theme::{BaseColor, Color, ColorStyle, Effect, Style}, view::Nameable, views::{Button, Dialog, EditView, LinearLayout, SelectView, TextView}, Cursive
+    theme::{BaseColor, Color, ColorStyle, Effect, Style}, view::Nameable, views::{Button, Dialog, DummyView, EditView, LinearLayout, ListView, SelectView, TextView}, Cursive
 };
 
 use crate::{cli_args::ARGS, utils::SystemDService};
@@ -134,36 +136,160 @@ impl ConfigRow {
     }
 }
 
-struct ServiceDisplayRow {
-    github_repo: String,
-    service_name: String,
-    program_name: String,
-    startup_args: Vec<String>,
-    install_location: String,
+trait ServiceDisplayRow {
+    fn create_row(self) -> LinearLayout;
 }
 
-impl ServiceDisplayRow {
-    fn new(
-        github_repo: String,
-        service_name: String,
-        program_name: String,
-        startup_args: Vec<String>,
-        install_location: String,
-    ) -> Self {
-        Self {
-            github_repo,
-            service_name,
-            program_name,
-            startup_args,
-            install_location,
-        }
-    }
+impl ServiceDisplayRow for SystemDService {
+    fn create_row(self) -> LinearLayout {
+        // TODO: Listen for service state update.
+        let service_state = Arc::new(Mutex::new(self));
+        let service_state_arc = service_state.clone();
+        let service_status = Arc::new(Mutex::new("unknown".to_owned()));
+        let service_status_arc = service_status.clone();
 
-    fn create_row(self) -> SelectView<ServiceDisplayRow> {
-        let service_name = &self.service_name.to_owned();
-        SelectView::new()
-            .item(service_name, self)
+        let service_name = match service_state_arc.lock() {
+            Ok(state) => {
+                (*state.service_name).to_string()
+            },
+            Err(_e) => {
+                "MUTEX_LOCK_FAIL".to_owned()
+            },
+        };
 
+        let service_state_arc2 = service_state.clone();
+        let initial_service_status = smol::block_on(async {
+            match service_status_arc.lock() {
+                Ok(state) => {
+                    if let Ok(state) = service_state_arc2.lock() {
+                        match (*state).check_unit_status().await {
+                            Ok(res) => {
+                                res
+                            },
+                            Err(e) => {
+                                format!("{:?}", e)
+                            },
+                        }
+                    } else {
+                        (*state).to_string()
+                    }
+                },
+                Err(_e) => {
+                    "MUTEX_LOCK_FAIL".to_owned()
+                },
+            }
+        });
+
+        let service_name_ref = Arc::new(service_name);
+        let service_name_ref1 = service_name_ref.clone();
+        let service_name_ref2 = service_name_ref.clone();
+
+        let service_state_arc = service_state.clone();
+        let service_status_arc = service_status.clone();
+        LinearLayout::horizontal()
+            .child(
+                Dialog::around(
+                    // Button Container
+                    LinearLayout::horizontal()
+                        // Buton Row
+                        .child(
+                            LinearLayout::vertical()
+                                // Buttons:
+                                .child(Button::new("Install", move |s| {
+                                    let service_state_arc = service_state_arc.clone();
+                                    let service_status_arc = service_status_arc.clone();
+
+                                    // Collect all state from config boxes.
+                                    // ----------------------------------------
+                                    // DB PATH:
+                                    let db_path = s.call_on_name(FieldToUpdate::DBPath.into_element_name(), |v: &mut TextView| {
+                                        let content = v.get_content();
+                                        content.source().to_owned()
+                                    }).unwrap_or(FieldToUpdate::DBPath.get_default());
+
+                                    // BROKER IP:
+                                    let broker_ip = s.call_on_name(FieldToUpdate::BrokerIP.into_element_name(), |v: &mut TextView| {
+                                        let content = v.get_content();
+                                        content.source().to_owned()
+                                    }).unwrap_or(FieldToUpdate::BrokerIP.get_default());
+
+                                    // INSTALL PATH:
+                                    let install_location = s.call_on_name(FieldToUpdate::InstallLocation.into_element_name(), |v: &mut TextView| {
+                                        let content = v.get_content();
+                                        content.source().to_owned()
+                                    }).unwrap_or(FieldToUpdate::InstallLocation.get_default());
+                                    // ----------------------------------------
+
+                                    let res: Result<()> = smol::block_on(async {
+                                        match service_state_arc.lock() {
+                                            Ok(mut state) => {
+                                                (*state).set_args(
+                                                    match service_name_ref1.to_string().as_ref() {
+                                                        "substore" => {
+                                                            vec![
+                                                                "--db-path".to_owned(), db_path,
+                                                                "--broker-ip".to_owned(), broker_ip,
+                                                            ]
+                                                        },
+                                                        _ => {
+                                                            vec![]
+                                                        }
+                                                    }
+                                                );
+                                                (*state).set_install_location(&install_location);
+                                                (*state).install_unit().await?;
+                                                let new_unit_status = (*state).check_unit_status().await?;
+                                                if let Ok(mut old_status) = service_status_arc.lock() {
+                                                    let new_unit_status = Arc::new(new_unit_status);
+                                                    *old_status = new_unit_status.to_string();
+
+
+                                                    s.call_on_name(&format!("{}-status-text", service_name_ref1), | v: &mut TextView | {
+                                                        v.set_content(new_unit_status.to_string())
+                                                    });
+                                                }
+                                            },
+                                            Err(_) => {
+                                                return Err(
+                                                    Error::new(std::io::ErrorKind::Other, "Poisoned mutex in install")
+                                                        .into()
+                                                );
+                                            },
+                                        };
+                                        Ok(())
+                                    });
+                                    if let Err(e) = res {
+                                        s.add_layer(Dialog::info(&format!("{:?}", e)));
+                                    }
+                                })
+                                )
+                                .child(Button::new("Uninstall", |s| {}))
+                        )
+                        .child(DummyView)
+                        // Buton Row
+                        .child(
+                            LinearLayout::vertical()
+                                // Buttons:
+                                .child(Button::new("Enable", |s| {}))
+                                .child(Button::new("Disable", |s| {}))
+                        )
+                )
+            )
+            .child(Dialog::around(
+                LinearLayout::vertical()
+                    .child(
+                        LinearLayout::horizontal()
+                            .child(TextView::new("SERVICE: "))
+                            .child(TextView::new(service_name_ref2.to_string()))
+                    )
+                        
+                    .child(
+                    LinearLayout::horizontal()
+                        .child(TextView::new("STATUS: "))
+                        .child(TextView::new(&initial_service_status)
+                            .with_name(&format!("{}-status-text", &service_name_ref2)))
+                    )
+            ))
     }
 }
 
@@ -172,7 +298,7 @@ pub fn draw_config(s: &mut Cursive, main_menu_id: usize) {
     let config_row2 = ConfigRow::new(FieldToUpdate::BrokerIP).create_row();
     let config_row3 = ConfigRow::new(FieldToUpdate::InstallLocation).create_row();
 
-    let service_row = ServiceDisplayRow::new(
+    let substore_service_row = SystemDService::new(
         "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
         "substore".to_owned(),
         "sub_store".to_owned(),
@@ -180,7 +306,7 @@ pub fn draw_config(s: &mut Cursive, main_menu_id: usize) {
             "--db-path".to_owned(), FieldToUpdate::DBPath.get_default(),
             "--broker-ip".to_owned(), FieldToUpdate::BrokerIP.get_default(),
         ],
-        "/usr/local/home_automation".to_owned(),
+        Some("/usr/local/home_automation".to_owned()),
     ).create_row();
 
     s.add_layer(
@@ -201,7 +327,10 @@ pub fn draw_config(s: &mut Cursive, main_menu_id: usize) {
                 .child(
                     Dialog::around(
                         LinearLayout::vertical()
-                            .child(Dialog::around(service_row)
+                            .child(Dialog::around(
+                                ListView::new().child("-->", substore_service_row)
+                                // service_row
+                            )
                                 .title("Install Services"))
                             .child(
                                 Dialog::around(TextView::new("TODO")).title("Check Dependencies"),
