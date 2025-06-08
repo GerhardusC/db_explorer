@@ -225,17 +225,36 @@ WantedBy=multi-user.target
         Ok(())
     }
 
-    async fn enable_unit(&self) -> Result<()> {
+    pub async fn enable_unit(&self) -> Result<()> {
         let connection = Connection::system().await?;
 
         let proxy = ManagerProxy::new(&connection).await?;
 
+        let service_formatted_name = format!("{}.service", &self.service_name);
+
         proxy.enable_unit_files(
-            &[&format!("{}.service", &self.service_name)],
+            &[&service_formatted_name],
             false,
             false
         ).await?;
 
+        proxy.start_unit(&service_formatted_name, "fail").await?;
+        Ok(())
+    }
+
+    pub async fn disable_unit(&self) -> Result<()> {
+        let connection = Connection::system().await?;
+
+        let proxy = ManagerProxy::new(&connection).await?;
+
+        let service_formatted_name = format!("{}.service", &self.service_name);
+
+        proxy.disable_unit_files(
+            &[&service_formatted_name],
+            false
+        ).await?;
+
+        proxy.stop_unit(&service_formatted_name, "fail").await?;
         Ok(())
     }
 

@@ -184,9 +184,13 @@ impl ServiceDisplayRow for SystemDService {
         let service_state_arc = service_state.clone();
         let service_state_arc2 = service_state.clone();
         let service_state_arc3 = service_state.clone();
+        let service_state_arc4 = service_state.clone();
+        let service_state_arc5 = service_state.clone();
 
         let element_name_arc2 = element_name_arc.clone();
         let element_name_arc3 = element_name_arc.clone();
+        let element_name_arc4 = element_name_arc.clone();
+        let element_name_arc5 = element_name_arc.clone();
         LinearLayout::horizontal()
             .child(
                 Dialog::around(
@@ -257,6 +261,8 @@ impl ServiceDisplayRow for SystemDService {
 
                                     if let Err(e) = res {
                                         s.add_layer(Dialog::info(&format!("{:?}", e)));
+                                    } else {
+                                        s.add_layer(Dialog::info("Installed"));
                                     }
                                 })
                                 )
@@ -278,6 +284,8 @@ impl ServiceDisplayRow for SystemDService {
 
                                     if let Err(e) = res {
                                         s.add_layer(Dialog::info(&format!("{:?}", e)));
+                                    } else {
+                                        s.add_layer(Dialog::info("Uninstalled"));
                                     }
                                 }))
                                 .child(Button::new("Remove", move |s| {
@@ -290,6 +298,8 @@ impl ServiceDisplayRow for SystemDService {
 
                                     if let Err(e) = res {
                                         s.add_layer(Dialog::info(&format!("{:?}", e)));
+                                    } else {
+                                        s.add_layer(Dialog::info("Removed"));
                                     }
                                 }))
                         )
@@ -298,8 +308,65 @@ impl ServiceDisplayRow for SystemDService {
                         .child(
                             LinearLayout::vertical()
                                 // Buttons:
-                                .child(Button::new("Enable", |s| {}))
-                                .child(Button::new("Disable", |s| {}))
+                                .child(Button::new("Enable", move |s| {
+                                    let element_name_arc4 = element_name_arc4.clone();
+                                    let service_state_arc4 = service_state_arc4.clone();
+
+                                    let res: Result<()> = smol::block_on(async {
+                                        match service_state_arc4.lock() {
+                                            Ok(state) => {
+                                                (*state).enable_unit().await?;
+                                                let new_unit_status = (*state).check_unit_status().await
+                                                    .unwrap_or_else(|e| {
+                                                        format!("{:?}", e)
+                                                });
+                                                s.call_on_name(&element_name_arc4.to_string(), | v: &mut TextView | {
+                                                    v.set_content(new_unit_status.to_string());
+                                                });
+                                            },
+                                            Err(_e) => {
+                                                s.add_layer(Dialog::info("Poisoned mutex in enable button"));
+                                            },
+                                        }
+                                        Ok(())
+                                    });
+
+                                    if let Err(e) = res {
+                                        s.add_layer(Dialog::info(&format!("{:?}", e)));
+                                    } else {
+                                        s.add_layer(Dialog::info("Enabled"));
+                                    }
+
+                                }))
+                                .child(Button::new("Disable", move |s| {
+                                    let element_name_arc5 = element_name_arc5.clone();
+                                    let service_state_arc5 = service_state_arc5.clone();
+
+                                    let res: Result<()> = smol::block_on(async {
+                                        match service_state_arc5.lock() {
+                                            Ok(state) => {
+                                                (*state).disable_unit().await?;
+                                                let new_unit_status = (*state).check_unit_status().await
+                                                    .unwrap_or_else(|e| {
+                                                        format!("{:?}", e)
+                                                });
+                                                s.call_on_name(&element_name_arc5.to_string(), | v: &mut TextView | {
+                                                    v.set_content(new_unit_status.to_string());
+                                                });
+                                            },
+                                            Err(_e) => {
+                                                s.add_layer(Dialog::info("Poisoned mutex in enable button"));
+                                            },
+                                        }
+                                        Ok(())
+                                    });
+
+                                    if let Err(e) = res {
+                                        s.add_layer(Dialog::info(&format!("{:?}", e)));
+                                    } else {
+                                        s.add_layer(Dialog::info("Disabled"));
+                                    }
+                                }))
                         )
                 )
             )
