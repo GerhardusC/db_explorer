@@ -1,5 +1,9 @@
-use std::{fs::{self, Permissions}, os::unix::fs::PermissionsExt, path::Path};
-use systemdzbus::{manager::ManagerProxy, Connection};
+use std::{
+    fs::{self, Permissions},
+    os::unix::fs::PermissionsExt,
+    path::Path,
+};
+use systemdzbus::{Connection, manager::ManagerProxy};
 
 use anyhow::Result;
 
@@ -68,10 +72,17 @@ impl SystemDService {
     pub async fn uninstall_unit(&self) -> Result<()> {
         let connection = Connection::system().await?;
         let proxy = ManagerProxy::new(&connection).await?;
-        proxy.stop_unit(&format!("{}.service", self.service_name), "fail").await?;
-        proxy.disable_unit_files(&[&format!("{}.service", self.service_name)], false).await?;
+        proxy
+            .stop_unit(&format!("{}.service", self.service_name), "fail")
+            .await?;
+        proxy
+            .disable_unit_files(&[&format!("{}.service", self.service_name)], false)
+            .await?;
 
-        fs::remove_file(&format!("/etc/systemd/system/{}.service", self.service_name))?;
+        fs::remove_file(&format!(
+            "/etc/systemd/system/{}.service",
+            self.service_name
+        ))?;
         proxy.reload().await?;
         Ok(())
     }
@@ -79,15 +90,15 @@ impl SystemDService {
     pub async fn remove_installed_files(&self) -> Result<()> {
         let install_loc = Path::new(&self.unzip_location).join(&self.program_name);
         fs::remove_file(install_loc)?;
-        
+
         match self.service_name.as_ref() {
             "substore" => {
                 let files = fs::read_dir(&self.unzip_location)?;
                 if files.count() == 0 {
                     fs::remove_dir(&self.unzip_location)?;
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
 
         Ok(())
@@ -104,24 +115,23 @@ impl SystemDService {
     }
 
     fn create_unit_file_string(&self) -> Result<String> {
-        let program_full_path = match Path::new(&self.unzip_location)
-            .canonicalize() {
-                Ok(s) => {
-                    s.join(&self.program_name).to_string_lossy().to_string()
-                },
-                Err(e) => {
-                    fs::create_dir_all(&self.unzip_location)?;
-                    if let Ok(new_path) = Path::new(&self.unzip_location)
-                        .canonicalize() {
-                            new_path.join(&self.program_name).to_string_lossy().to_string()
-                    } else {
-                        return Err(e.into())
-                    }
-                },
-            };
+        let program_full_path = match Path::new(&self.unzip_location).canonicalize() {
+            Ok(s) => s.join(&self.program_name).to_string_lossy().to_string(),
+            Err(e) => {
+                fs::create_dir_all(&self.unzip_location)?;
+                if let Ok(new_path) = Path::new(&self.unzip_location).canonicalize() {
+                    new_path
+                        .join(&self.program_name)
+                        .to_string_lossy()
+                        .to_string()
+                } else {
+                    return Err(e.into());
+                }
+            }
+        };
 
         Ok(format!(
-"[Unit]
+            "[Unit]
 Description=Part of the data collection package. This is the {} service. 
 After=network.target
 
@@ -141,10 +151,7 @@ WantedBy=multi-user.target
     }
 
     fn check_program_exists(&self) -> Result<bool> {
-        let exists = fs::exists(
-            Path::new(&self.unzip_location)
-                .join(&self.program_name)
-        )?;
+        let exists = fs::exists(Path::new(&self.unzip_location).join(&self.program_name))?;
 
         Ok(exists)
     }
@@ -153,7 +160,6 @@ WantedBy=multi-user.target
         let exists = fs::exists(format!("/etc/systemd/system/{}.service", self.service_name))?;
         Ok(exists)
     }
-
 
     fn download_release(&self) -> Result<()> {
         let res = reqwest::blocking::get(&self.github_release_link)?;
@@ -176,8 +182,10 @@ WantedBy=multi-user.target
         let stdout = String::from_utf8(res.stdout)?;
         let stderr = String::from_utf8(res.stderr)?;
 
-        fs::set_permissions(Path::new(&self.unzip_location)
-            .join(&self.program_name), Permissions::from_mode(0o775))?;
+        fs::set_permissions(
+            Path::new(&self.unzip_location).join(&self.program_name),
+            Permissions::from_mode(0o775),
+        )?;
 
         Ok(format!("{}, {}", stdout, stderr))
     }
@@ -187,19 +195,21 @@ WantedBy=multi-user.target
 
         let proxy = ManagerProxy::new(&connection).await?;
 
-        let result = proxy.get_unit(&format!("{}.service", self.service_name)).await;
+        let result = proxy
+            .get_unit(&format!("{}.service", self.service_name))
+            .await;
         match result {
             Ok(res) => {
                 println!("Service is running: {:?}", res);
                 Ok(true)
-            },
+            }
             Err(e) => {
                 let err_str = e.to_string();
                 if err_str.contains("NoSuchUnit") {
-                    return Ok(false)
+                    return Ok(false);
                 }
                 return Err(e.into());
-            },
+            }
         }
     }
 
@@ -209,7 +219,9 @@ WantedBy=multi-user.target
 
         let proxy = ManagerProxy::new(&connection).await?;
 
-        let status = proxy.get_unit_file_state(&format!("{}.service", &self.service_name)).await?;
+        let status = proxy
+            .get_unit_file_state(&format!("{}.service", &self.service_name))
+            .await?;
 
         Ok(status)
     }
@@ -219,7 +231,9 @@ WantedBy=multi-user.target
 
         let proxy = ManagerProxy::new(&connection).await?;
 
-        proxy.load_unit(&format!("{}.service", &self.service_name)).await?;
+        proxy
+            .load_unit(&format!("{}.service", &self.service_name))
+            .await?;
 
         Ok(())
     }
@@ -231,11 +245,9 @@ WantedBy=multi-user.target
 
         let service_formatted_name = format!("{}.service", &self.service_name);
 
-        proxy.enable_unit_files(
-            &[&service_formatted_name],
-            false,
-            false
-        ).await?;
+        proxy
+            .enable_unit_files(&[&service_formatted_name], false, false)
+            .await?;
 
         proxy.start_unit(&service_formatted_name, "fail").await?;
         Ok(())
@@ -248,10 +260,9 @@ WantedBy=multi-user.target
 
         let service_formatted_name = format!("{}.service", &self.service_name);
 
-        proxy.disable_unit_files(
-            &[&service_formatted_name],
-            false
-        ).await?;
+        proxy
+            .disable_unit_files(&[&service_formatted_name], false)
+            .await?;
 
         proxy.stop_unit(&service_formatted_name, "fail").await?;
         Ok(())
@@ -262,7 +273,9 @@ WantedBy=multi-user.target
 
         let proxy = ManagerProxy::new(&connection).await?;
 
-        proxy.start_unit(&format!("{}.service", &self.service_name), "fail").await?;
+        proxy
+            .start_unit(&format!("{}.service", &self.service_name), "fail")
+            .await?;
 
         Ok(())
     }
@@ -279,25 +292,39 @@ mod test {
         fs::create_dir_all("/usr/local/home_automation/data").unwrap();
         let res: Result<()> = smol::block_on(async {
             let service = SystemDService::new(
-                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip"
+                    .to_owned(),
                 "substore".to_owned(),
                 "sub_store".to_owned(),
-                vec!["--db-path".to_owned(), "/usr/local/home_automation/data/data.db".to_owned()],
+                vec![
+                    "--db-path".to_owned(),
+                    "/usr/local/home_automation/data/data.db".to_owned(),
+                ],
                 Some("/usr/local/home_automation".to_owned()),
             );
 
             let res = service.install_unit().await;
 
-            assert!(res.is_ok(), "Should be able to create unit from start to finish.");
+            assert!(
+                res.is_ok(),
+                "Should be able to create unit from start to finish."
+            );
 
             // Cleanup
             // Not cleaning up download because we can skip downloading if we run the tests again.
             let connection = Connection::system().await?;
             let proxy = ManagerProxy::new(&connection).await?;
-            proxy.stop_unit(&format!("{}.service", service.service_name), "fail").await?;
-            proxy.disable_unit_files(&[&format!("{}.service", service.service_name)], false).await?;
+            proxy
+                .stop_unit(&format!("{}.service", service.service_name), "fail")
+                .await?;
+            proxy
+                .disable_unit_files(&[&format!("{}.service", service.service_name)], false)
+                .await?;
 
-            fs::remove_file(&format!("/etc/systemd/system/{}.service", service.service_name))?;
+            fs::remove_file(&format!(
+                "/etc/systemd/system/{}.service",
+                service.service_name
+            ))?;
             proxy.reload().await?;
 
             Ok(())
@@ -312,7 +339,8 @@ mod test {
     fn should_start_unit() {
         let res: Result<()> = smol::block_on(async {
             let service = SystemDService::new(
-                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip"
+                    .to_owned(),
                 "cron".to_owned(),
                 "sub_store".to_owned(),
                 vec![],
@@ -325,13 +353,13 @@ mod test {
         });
 
         assert!(res.is_ok(), "Should be able to start unit file.");
-
     }
     #[test]
     fn should_enable_unit() {
         let res: Result<()> = smol::block_on(async {
             let service = SystemDService::new(
-                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip"
+                    .to_owned(),
                 "cron".to_owned(),
                 "sub_store".to_owned(),
                 vec![],
@@ -346,10 +374,10 @@ mod test {
 
     #[test]
     fn should_check_unit_file_enabled() {
-
         let res: Result<String> = smol::block_on(async {
             let service = SystemDService::new(
-                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip"
+                    .to_owned(),
                 "cron".to_owned(),
                 "sub_store".to_owned(),
                 vec![],
@@ -357,7 +385,7 @@ mod test {
             );
 
             let status = service.check_unit_status().await?;
-            
+
             Ok(status)
         });
 
@@ -373,7 +401,8 @@ mod test {
     fn should_check_unit_registered() {
         let res: Result<bool> = smol::block_on(async {
             let service = SystemDService::new(
-                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
+                "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip"
+                    .to_owned(),
                 "cron".to_owned(),
                 "sub_store".to_owned(),
                 vec![],
@@ -387,7 +416,6 @@ mod test {
 
         assert!(res.is_ok());
         assert!(res.expect("should be able to check unit file"));
-
     }
 
     // Ignoring this test for now to ensure we don't keep downloading the file.
@@ -395,7 +423,8 @@ mod test {
     #[test]
     fn should_download_zip_file() {
         let service = SystemDService::new(
-            "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
+            "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip"
+                .to_owned(),
             "substore".to_owned(),
             "sub_store".to_owned(),
             vec![],
@@ -418,7 +447,8 @@ mod test {
     fn should_unzip_file() {
         // SETUP:
         let service = SystemDService::new(
-            "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
+            "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip"
+                .to_owned(),
             "substore".to_owned(),
             "sub_store".to_owned(),
             vec![],
@@ -430,8 +460,7 @@ mod test {
         let dummy_zipped_name = "./substore.zip";
 
         // Create dummy file to zip.
-        fs::write(dummy_file_name, "hello")
-            .expect("Should be able to create dummy file");
+        fs::write(dummy_file_name, "hello").expect("Should be able to create dummy file");
 
         // Zip up dummy file
         let _new_zip = process::Command::new("zip")
@@ -442,9 +471,7 @@ mod test {
         assert!(fs::exists(dummy_zipped_name).expect("Should be able to call exists on file"));
 
         // PERFORM
-        let result = service
-            .unzip_file()
-            .expect("Should be able to unzip file");
+        let result = service.unzip_file().expect("Should be able to unzip file");
 
         // ASSERT
         assert!(result.contains("extracting"));
@@ -475,7 +502,8 @@ mod test {
             vec!["-a".to_owned()],
             Some("./temp".to_owned()),
         );
-        let expected_string = format!("[Unit]
+        let expected_string = format!(
+            "[Unit]
 Description=Part of the data collection package. This is the service_name service. 
 After=network.target
 
@@ -487,10 +515,20 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-", Path::new("./").canonicalize().unwrap().join("temp").to_string_lossy().to_string());
-        assert_eq!(service.create_unit_file_string().unwrap_or_else(|e| {
-            println!("{:?}", e);
-            "".to_owned()
-        }), expected_string);
+",
+            Path::new("./")
+                .canonicalize()
+                .unwrap()
+                .join("temp")
+                .to_string_lossy()
+                .to_string()
+        );
+        assert_eq!(
+            service.create_unit_file_string().unwrap_or_else(|e| {
+                println!("{:?}", e);
+                "".to_owned()
+            }),
+            expected_string
+        );
     }
 }
