@@ -141,6 +141,70 @@ trait ServiceDisplayRow {
     fn get_element_name(&self) -> String;
 }
 
+enum SimpleButtonKind {
+    Enable,
+    Disable,
+    Uninstall,
+    Remove,
+}
+
+impl SimpleButtonKind {
+    fn get_status_text(&self) -> String {
+        match self {
+            SimpleButtonKind::Enable => "Enabled".to_owned(),
+            SimpleButtonKind::Disable => "Disabled".to_owned(),
+            SimpleButtonKind::Uninstall => "Uninstalled".to_owned(),
+            SimpleButtonKind::Remove => "Removed".to_owned(),
+        }
+    }
+}
+
+fn simple_button_handler(
+    s: &mut Cursive,
+    service_state: Arc<Mutex<SystemDService>>,
+    element_name: Arc<String>,
+    button_kind: SimpleButtonKind
+) {
+    let res: Result<()> = smol::block_on(async {
+        match service_state.lock() {
+            Ok(state) => {
+                match &button_kind {
+                    SimpleButtonKind::Enable => {
+                        (*state).enable_unit().await?;
+                    },
+                    SimpleButtonKind::Disable => {
+                        (*state).disable_unit().await?;
+                    },
+                    SimpleButtonKind::Uninstall => {
+                        (*state).uninstall_unit().await?;
+                    },
+                    SimpleButtonKind::Remove => {
+                        (*state).remove_installed_files().await?;
+                        return Ok(());
+                    },
+                }
+                let new_unit_status = (*state).check_unit_status().await
+                    .unwrap_or_else(|e| {
+                        format!("{:?}", e)
+                });
+                s.call_on_name(&element_name.to_string(), | v: &mut TextView | {
+                    v.set_content(new_unit_status.to_string());
+                });
+            },
+            Err(_e) => {
+                s.add_layer(Dialog::info("Poisoned mutex in enable button"));
+            },
+        }
+        Ok(())
+    });
+
+    if let Err(e) = res {
+        s.add_layer(Dialog::info(&format!("{:?}", e)));
+    } else {
+        s.add_layer(Dialog::info(&button_kind.get_status_text()));
+    }
+}
+
 impl ServiceDisplayRow for SystemDService {
     fn get_element_name(&self) -> String {
         format!("{}-status-text", self.service_name)
@@ -267,40 +331,20 @@ impl ServiceDisplayRow for SystemDService {
                                 })
                                 )
                                 .child(Button::new("Uninstall", move |s| {
-                                    let element_name_arc3 = element_name_arc3.clone();
-                                    let res: Result<()> = smol::block_on(async {
-                                        if let Ok(state) = service_state_arc2.lock() {
-                                            (*state).uninstall_unit().await?;
-                                            let new_unit_status = (*state).check_unit_status().await
-                                                .unwrap_or_else(|e| {
-                                                    format!("{:?}", e)
-                                            });
-                                            s.call_on_name(&element_name_arc3.to_string(), | v: &mut TextView | {
-                                                v.set_content(new_unit_status.to_string());
-                                            });
-                                        };
-                                        Ok(())
-                                    });
-
-                                    if let Err(e) = res {
-                                        s.add_layer(Dialog::info(&format!("{:?}", e)));
-                                    } else {
-                                        s.add_layer(Dialog::info("Uninstalled"));
-                                    }
+                                    simple_button_handler(
+                                        s,
+                                        service_state_arc2.clone(),
+                                        element_name_arc3.clone(),
+                                        SimpleButtonKind::Uninstall
+                                    );
                                 }))
                                 .child(Button::new("Remove", move |s| {
-                                    let res: Result<()> = smol::block_on(async {
-                                        if let Ok(state) = service_state_arc3.lock() {
-                                            (*state).remove_installed_files().await?;
-                                        };
-                                        Ok(())
-                                    });
-
-                                    if let Err(e) = res {
-                                        s.add_layer(Dialog::info(&format!("{:?}", e)));
-                                    } else {
-                                        s.add_layer(Dialog::info("Removed"));
-                                    }
+                                    simple_button_handler(
+                                        s,
+                                        service_state_arc3.clone(),
+                                        Arc::new("".to_owned()),
+                                        SimpleButtonKind::Remove
+                                    );
                                 }))
                         )
                         .child(DummyView)
@@ -309,63 +353,20 @@ impl ServiceDisplayRow for SystemDService {
                             LinearLayout::vertical()
                                 // Buttons:
                                 .child(Button::new("Enable", move |s| {
-                                    let element_name_arc4 = element_name_arc4.clone();
-                                    let service_state_arc4 = service_state_arc4.clone();
-
-                                    let res: Result<()> = smol::block_on(async {
-                                        match service_state_arc4.lock() {
-                                            Ok(state) => {
-                                                (*state).enable_unit().await?;
-                                                let new_unit_status = (*state).check_unit_status().await
-                                                    .unwrap_or_else(|e| {
-                                                        format!("{:?}", e)
-                                                });
-                                                s.call_on_name(&element_name_arc4.to_string(), | v: &mut TextView | {
-                                                    v.set_content(new_unit_status.to_string());
-                                                });
-                                            },
-                                            Err(_e) => {
-                                                s.add_layer(Dialog::info("Poisoned mutex in enable button"));
-                                            },
-                                        }
-                                        Ok(())
-                                    });
-
-                                    if let Err(e) = res {
-                                        s.add_layer(Dialog::info(&format!("{:?}", e)));
-                                    } else {
-                                        s.add_layer(Dialog::info("Enabled"));
-                                    }
-
+                                    simple_button_handler(
+                                        s,
+                                        service_state_arc4.clone(),
+                                        element_name_arc4.clone(),
+                                        SimpleButtonKind::Enable
+                                    );
                                 }))
                                 .child(Button::new("Disable", move |s| {
-                                    let element_name_arc5 = element_name_arc5.clone();
-                                    let service_state_arc5 = service_state_arc5.clone();
-
-                                    let res: Result<()> = smol::block_on(async {
-                                        match service_state_arc5.lock() {
-                                            Ok(state) => {
-                                                (*state).disable_unit().await?;
-                                                let new_unit_status = (*state).check_unit_status().await
-                                                    .unwrap_or_else(|e| {
-                                                        format!("{:?}", e)
-                                                });
-                                                s.call_on_name(&element_name_arc5.to_string(), | v: &mut TextView | {
-                                                    v.set_content(new_unit_status.to_string());
-                                                });
-                                            },
-                                            Err(_e) => {
-                                                s.add_layer(Dialog::info("Poisoned mutex in enable button"));
-                                            },
-                                        }
-                                        Ok(())
-                                    });
-
-                                    if let Err(e) = res {
-                                        s.add_layer(Dialog::info(&format!("{:?}", e)));
-                                    } else {
-                                        s.add_layer(Dialog::info("Disabled"));
-                                    }
+                                    simple_button_handler(
+                                        s,
+                                        service_state_arc5.clone(),
+                                        element_name_arc5.clone(),
+                                        SimpleButtonKind::Disable
+                                    );
                                 }))
                         )
                 )

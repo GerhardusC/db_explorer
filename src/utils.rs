@@ -73,7 +73,6 @@ impl SystemDService {
 
         fs::remove_file(&format!("/etc/systemd/system/{}.service", self.service_name))?;
         proxy.reload().await?;
-        // TODO: Also remove install files.
         Ok(())
     }
 
