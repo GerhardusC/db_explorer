@@ -166,6 +166,100 @@ impl SimpleButtonKind {
     }
 }
 
+fn install_button_handler(
+    s: &mut Cursive,
+    service_state: Arc<Mutex<SystemDService>>,
+    element_name: Arc<String>,
+) {
+    let service_state = service_state.clone();
+    let element_name = element_name.clone();
+
+    // Collect all state from config boxes.
+    // ----------------------------------------
+    // DB PATH:
+    let db_path = s
+        .call_on_name(
+            FieldToUpdate::DBPath.into_element_name(),
+            |v: &mut TextView| {
+                let content = v.get_content();
+                content.source().to_owned()
+            },
+        )
+        .unwrap_or(FieldToUpdate::DBPath.get_default());
+
+    // BROKER IP:
+    let broker_ip = s
+        .call_on_name(
+            FieldToUpdate::BrokerIP.into_element_name(),
+            |v: &mut TextView| {
+                let content = v.get_content();
+                content.source().to_owned()
+            },
+        )
+        .unwrap_or(FieldToUpdate::BrokerIP.get_default());
+
+    // INSTALL PATH:
+    let install_location = s
+        .call_on_name(
+            FieldToUpdate::InstallLocation.into_element_name(),
+            |v: &mut TextView| {
+                let content = v.get_content();
+                content.source().to_owned()
+            },
+        )
+        .unwrap_or(FieldToUpdate::InstallLocation.get_default());
+    // ----------------------------------------
+
+    let res: Result<()> = smol::block_on(async {
+        match service_state.lock() {
+            Ok(mut state) => {
+                let service_name = (*state).service_name.to_owned();
+                (*state).set_args(
+                    match service_name.as_ref() {
+                        "substore" => {
+                            vec![
+                                "--db-path".to_owned(),
+                                db_path,
+                                "--broker-ip".to_owned(),
+                                broker_ip,
+                            ]
+                        }
+                        _ => {
+                            vec![]
+                        }
+                    },
+                );
+                (*state).set_install_location(&install_location);
+                (*state).install_unit().await?;
+                let new_unit_status =
+                    (*state).check_unit_status().await?;
+
+                s.call_on_name(
+                    &element_name.to_string(),
+                    |v: &mut TextView| {
+                        v.set_content(new_unit_status.to_string())
+                    },
+                );
+            }
+            Err(_) => {
+                return Err(Error::new(
+                    std::io::ErrorKind::Other,
+                    "Poisoned mutex in install",
+                )
+                .into());
+            }
+        };
+        Ok(())
+    });
+
+    if let Err(e) = res {
+        s.add_layer(Dialog::info(&format!("{:?}", e)));
+    } else {
+        s.add_layer(Dialog::info("Installed"));
+    }
+
+}
+
 fn simple_button_handler(
     s: &mut Cursive,
     service_state: Arc<Mutex<SystemDService>>,
@@ -244,18 +338,15 @@ impl ServiceDisplayRow for SystemDService {
 
         let service_name_ref = Arc::new(service_name);
         let service_name_ref1 = service_name_ref.clone();
-        let service_name_ref2 = service_name_ref.clone();
 
         let service_state_arc = service_state.clone();
         let service_state_arc2 = service_state.clone();
         let service_state_arc3 = service_state.clone();
         let service_state_arc4 = service_state.clone();
-        let service_state_arc5 = service_state.clone();
 
         let element_name_arc2 = element_name_arc.clone();
         let element_name_arc3 = element_name_arc.clone();
         let element_name_arc4 = element_name_arc.clone();
-        let element_name_arc5 = element_name_arc.clone();
         LinearLayout::horizontal()
             .child(Dialog::around(
                 // Button Container
@@ -265,91 +356,7 @@ impl ServiceDisplayRow for SystemDService {
                         LinearLayout::vertical()
                             // Buttons:
                             .child(Button::new("Install", move |s| {
-                                let service_state_arc = service_state_arc.clone();
-                                let element_name_arc = element_name_arc.clone();
-
-                                // Collect all state from config boxes.
-                                // ----------------------------------------
-                                // DB PATH:
-                                let db_path = s
-                                    .call_on_name(
-                                        FieldToUpdate::DBPath.into_element_name(),
-                                        |v: &mut TextView| {
-                                            let content = v.get_content();
-                                            content.source().to_owned()
-                                        },
-                                    )
-                                    .unwrap_or(FieldToUpdate::DBPath.get_default());
-
-                                // BROKER IP:
-                                let broker_ip = s
-                                    .call_on_name(
-                                        FieldToUpdate::BrokerIP.into_element_name(),
-                                        |v: &mut TextView| {
-                                            let content = v.get_content();
-                                            content.source().to_owned()
-                                        },
-                                    )
-                                    .unwrap_or(FieldToUpdate::BrokerIP.get_default());
-
-                                // INSTALL PATH:
-                                let install_location = s
-                                    .call_on_name(
-                                        FieldToUpdate::InstallLocation.into_element_name(),
-                                        |v: &mut TextView| {
-                                            let content = v.get_content();
-                                            content.source().to_owned()
-                                        },
-                                    )
-                                    .unwrap_or(FieldToUpdate::InstallLocation.get_default());
-                                // ----------------------------------------
-
-                                let res: Result<()> = smol::block_on(async {
-                                    match service_state_arc.lock() {
-                                        Ok(mut state) => {
-                                            (*state).set_args(
-                                                match service_name_ref1.to_string().as_ref() {
-                                                    "substore" => {
-                                                        vec![
-                                                            "--db-path".to_owned(),
-                                                            db_path,
-                                                            "--broker-ip".to_owned(),
-                                                            broker_ip,
-                                                        ]
-                                                    }
-                                                    _ => {
-                                                        vec![]
-                                                    }
-                                                },
-                                            );
-                                            (*state).set_install_location(&install_location);
-                                            (*state).install_unit().await?;
-                                            let new_unit_status =
-                                                (*state).check_unit_status().await?;
-
-                                            s.call_on_name(
-                                                &element_name_arc.to_string(),
-                                                |v: &mut TextView| {
-                                                    v.set_content(new_unit_status.to_string())
-                                                },
-                                            );
-                                        }
-                                        Err(_) => {
-                                            return Err(Error::new(
-                                                std::io::ErrorKind::Other,
-                                                "Poisoned mutex in install",
-                                            )
-                                            .into());
-                                        }
-                                    };
-                                    Ok(())
-                                });
-
-                                if let Err(e) = res {
-                                    s.add_layer(Dialog::info(&format!("{:?}", e)));
-                                } else {
-                                    s.add_layer(Dialog::info("Installed"));
-                                }
+                                install_button_handler(s, service_state_arc.clone(), element_name_arc.clone());
                             }))
                             .child(Button::new("Uninstall", move |s| {
                                 simple_button_handler(
@@ -384,8 +391,8 @@ impl ServiceDisplayRow for SystemDService {
                             .child(Button::new("Disable", move |s| {
                                 simple_button_handler(
                                     s,
-                                    service_state_arc5.clone(),
-                                    element_name_arc5.clone(),
+                                    service_state.clone(),
+                                    element_name.clone(),
                                     SimpleButtonKind::Disable,
                                 );
                             })),
@@ -396,7 +403,7 @@ impl ServiceDisplayRow for SystemDService {
                     .child(
                         LinearLayout::horizontal()
                             .child(TextView::new("SERVICE: "))
-                            .child(TextView::new(service_name_ref2.to_string())),
+                            .child(TextView::new(service_name_ref1.to_string())),
                     )
                     .child(
                         LinearLayout::horizontal()
