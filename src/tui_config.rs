@@ -13,7 +13,7 @@ use cursive::{
     views::{Button, Dialog, DummyView, EditView, LinearLayout, ListView, TextView},
 };
 
-use crate::{cli_args::ARGS, utils::SystemDService};
+use crate::{cli_args::ARGS, utils::{ServiceKind, SystemDService}};
 
 #[derive(Clone)]
 enum FieldToUpdate {
@@ -192,14 +192,20 @@ fn install_button_handler(
     let res: Result<()> = smol::block_on(async {
         match service_state.lock() {
             Ok(mut state) => {
-                let service_name = (*state).service_name.to_owned();
-                (*state).set_args(match service_name.as_ref() {
-                    "substore" => {
+                let service_kind = (*state).service_kind.clone();
+                (*state).set_args(match service_kind {
+                    ServiceKind::DataDashboardServer => {
                         vec![
                             "--db-path".to_owned(),
                             db_path,
                             "--broker-ip".to_owned(),
                             broker_ip,
+                        ]
+                    },
+                    ServiceKind::SubStore => {
+                        vec![
+                            "-d".to_owned(),
+                            db_path,
                         ]
                     }
                     _ => {
@@ -278,7 +284,7 @@ fn simple_button_handler(
 
 impl ServiceDisplayRow for SystemDService {
     fn get_element_name(&self) -> String {
-        format!("{}-status-text", self.service_name)
+        format!("{}-status-text", self.service_kind.get_service_name())
     }
     fn create_row(self) -> LinearLayout {
         // TODO: Listen for service state update.
@@ -288,7 +294,7 @@ impl ServiceDisplayRow for SystemDService {
         let service_state_arc = service_state.clone();
 
         let service_name = match service_state_arc.lock() {
-            Ok(state) => (*state.service_name).to_string(),
+            Ok(state) => (*state).service_kind.get_service_name(),
             Err(_e) => "MUTEX_LOCK_FAIL".to_owned(),
         };
 
@@ -397,9 +403,7 @@ pub fn draw_config(s: &mut Cursive, main_menu_id: usize) {
     let config_row3 = ConfigRow::new(FieldToUpdate::InstallLocation).create_row();
 
     let substore_service_row = SystemDService::new(
-        "https://github.com/GerhardusC/SubStore/releases/latest/download/release.zip".to_owned(),
-        "substore".to_owned(),
-        "sub_store".to_owned(),
+        ServiceKind::SubStore,
         vec![
             "--db-path".to_owned(),
             FieldToUpdate::DBPath.get_default(),
