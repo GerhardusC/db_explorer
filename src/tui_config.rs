@@ -198,6 +198,9 @@ fn install_button_handler(
                         vec![
                             "-d".to_owned(),
                             db_path,
+                            "-s".to_owned(),
+                            Path::new(&install_location
+                                .clone()).join("frontend/dist").to_string_lossy().to_string(),
                         ]
                     },
                     ServiceKind::SubStore => {
@@ -413,6 +416,16 @@ pub fn draw_config(s: &mut Cursive, main_menu_id: usize) {
         Some("/usr/local/home_automation".to_owned()),
     )
     .create_row();
+    let data_dashboard_server_service_row = SystemDService::new(
+        ServiceKind::DataDashboardServer,
+        vec![
+            "-d".to_owned(), FieldToUpdate::DBPath.get_default(),
+            "-s".to_owned(), Path::new(&FieldToUpdate::InstallLocation.get_default())
+                .join("frontend/dist").to_string_lossy().to_string(),
+        ],
+        Some("/usr/local/home_automation".to_owned()),
+    )
+    .create_row();
 
     s.add_layer(
         Dialog::around(
@@ -433,7 +446,9 @@ pub fn draw_config(s: &mut Cursive, main_menu_id: usize) {
                         LinearLayout::vertical()
                             .child(
                                 Dialog::around(
-                                    ListView::new().child("-->", substore_service_row), // service_row
+                                    ListView::new()
+                                        .child("-->", substore_service_row) 
+                                        .child("-->", data_dashboard_server_service_row)
                                 )
                                 .title("Install Services"),
                             )
