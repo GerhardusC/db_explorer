@@ -123,7 +123,7 @@ impl SystemDService {
                     fs::remove_dir(&self.unzip_location)?;
                 }
             },
-            _ => {}
+            ServiceKind::TestService => {}
         }
 
         // Regarless of what we're installing, if the dir is empty after, delete it.

@@ -196,19 +196,19 @@ fn install_button_handler(
                 (*state).set_args(match service_kind {
                     ServiceKind::DataDashboardServer => {
                         vec![
+                            "-d".to_owned(),
+                            db_path,
+                        ]
+                    },
+                    ServiceKind::SubStore => {
+                        vec![
                             "--db-path".to_owned(),
                             db_path,
                             "--broker-ip".to_owned(),
                             broker_ip,
                         ]
                     },
-                    ServiceKind::SubStore => {
-                        vec![
-                            "-d".to_owned(),
-                            db_path,
-                        ]
-                    }
-                    _ => {
+                    ServiceKind::TestService => {
                         vec![]
                     }
                 });
