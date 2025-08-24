@@ -210,7 +210,11 @@ fn update_table(s: &mut Cursive, table_name: &str, val_filter: Arc<Mutex<String>
             v.clear();
             v.add_all(
                 rows.iter()
-                    .filter(|row| row.value.contains(&val_filter.to_string()))
+                    .rev()
+                    .filter(|row|
+                        row.value.contains(&val_filter.to_string()) ||
+                        row.topic.contains(&val_filter.to_string())
+                    )
                     .map(|row| (row, row.to_owned())),
             );
         };

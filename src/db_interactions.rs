@@ -12,7 +12,7 @@ use crate::cli_args::ARGS;
 
 pub struct DBRow {
     timestamp: u64,
-    topic: String,
+    pub topic: String,
     pub value: String,
 }
 
@@ -79,11 +79,11 @@ impl FromSql for ColumnKind {
 pub fn delete_row_from_table(row: &DBRow, table_name: &str) -> Result<usize> {
     let conn = Connection::open(&ARGS.db_path)?;
     let query = format!(
-        "DELETE FROM {} WHERE timestamp = ?1 and topic = ?2 and value = ?3;",
+        "DELETE FROM {} WHERE timestamp = ?1 and topic = ?2;",
         table_name
     );
 
-    let rows_changed = conn.execute(&query, params![row.timestamp, row.topic, row.value])?;
+    let rows_changed = conn.execute(&query, params![row.timestamp, row.topic])?;
 
     Ok(rows_changed)
 }
